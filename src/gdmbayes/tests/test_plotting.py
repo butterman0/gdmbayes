@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from spgdmm.plotting import plot_isplines, plot_crps_comparison, summarise_sampling, plot_ppc
+from gdmbayes.plotting import plot_isplines, plot_crps_comparison, summarise_sampling, plot_ppc
 
 
 class TestSummariseSampling:
@@ -130,7 +130,7 @@ class TestPlotISplines:
     def test_plot_isplines_skip(self):
         """Test that plot_isplines requires fitted model."""
         # This test verifies the function exists and handles unfitted models
-        from spgdmm import spGDMM
+        from gdmbayes import spGDMM
 
         model = spGDMM()
 

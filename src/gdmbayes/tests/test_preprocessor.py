@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist
 
-from spgdmm import PreprocessorConfig, GDMPreprocessor
+from gdmbayes import PreprocessorConfig, GDMPreprocessor
 
 
 # ---------------------------------------------------------------------------

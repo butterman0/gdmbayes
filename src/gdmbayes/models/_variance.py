@@ -2,11 +2,11 @@
 
 Each function is called inside a PyMC model context and returns a PyTensor
 expression for the variance ``sigma²``.  Pass the string name or any callable
-with the same signature to :class:`~spgdmm.ModelConfig`:
+with the same signature to :class:`~gdmbayes.ModelConfig`:
 
 .. code-block:: python
 
-    from spgdmm import ModelConfig, variance_polynomial
+    from gdmbayes import ModelConfig, variance_polynomial
 
     # Built-in by name
     cfg = ModelConfig(variance="polynomial")
@@ -84,7 +84,7 @@ Use this dict to inspect available options or extend the registry at runtime:
 
 .. code-block:: python
 
-    from spgdmm import VARIANCE_FUNCTIONS
+    from gdmbayes import VARIANCE_FUNCTIONS
     print(list(VARIANCE_FUNCTIONS))  # ['homogeneous', 'covariate_dependent', 'polynomial']
 """
 

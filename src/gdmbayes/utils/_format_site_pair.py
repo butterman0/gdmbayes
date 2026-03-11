@@ -123,7 +123,7 @@ def format_site_pair(
     Examples
     --------
     >>> import pandas as pd
-    >>> from spgdmm.utils import format_site_pair, BioFormat
+    >>> from gdmbayes.utils import format_site_pair, BioFormat
     >>>
     >>> # FORMAT2: Long format with site, species, coordinates
     >>> bio_data = pd.DataFrame({

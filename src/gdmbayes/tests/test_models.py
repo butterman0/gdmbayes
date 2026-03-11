@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist
-from spgdmm import (
+from gdmbayes import (
     spGDMM,
     ModelConfig,
     SamplerConfig,

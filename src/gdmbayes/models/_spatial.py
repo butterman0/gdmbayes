@@ -3,11 +3,11 @@
 Each function is called inside a PyMC model context after the GP latent
 variable ``psi`` has been sampled, and returns a PyTensor vector to be added
 to the linear predictor ``mu``.  Pass the string name or any callable with the
-same signature to :class:`~spgdmm.ModelConfig`:
+same signature to :class:`~gdmbayes.ModelConfig`:
 
 .. code-block:: python
 
-    from spgdmm import ModelConfig, spatial_abs_diff
+    from gdmbayes import ModelConfig, spatial_abs_diff
 
     # Built-in by name
     cfg = ModelConfig(spatial_effect="abs_diff")
@@ -64,7 +64,7 @@ Use this dict to inspect available options or extend the registry at runtime:
 
 .. code-block:: python
 
-    from spgdmm import SPATIAL_FUNCTIONS
+    from gdmbayes import SPATIAL_FUNCTIONS
     print(list(SPATIAL_FUNCTIONS))  # ['abs_diff', 'squared_diff']
 """
 

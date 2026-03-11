@@ -56,7 +56,7 @@ class ModelConfig:
     This dataclass encapsulates the model-structure parameters for spGDMM:
     variance structure and spatial random effects.  Data-preprocessing settings
     (spline degree, knots, distance measure, etc.) now live in
-    :class:`~spgdmm.core.config.PreprocessorConfig`.
+    :class:`~gdmbayes.core._config.PreprocessorConfig`.
 
     Parameters
     ----------
@@ -67,13 +67,13 @@ class ModelConfig:
         ``"covariate_dependent"``, ``"polynomial"``.  Pass a callable for a
         custom structure: ``fn(mu, X_sigma) -> sigma2``, where ``mu`` is a
         PyTensor variable and ``X_sigma`` is an np.ndarray or None.
-        See :mod:`spgdmm.models.variance` for the built-in implementations.
+        See :mod:`gdmbayes.models._variance` for the built-in implementations.
     spatial_effect : str or callable
         Spatial random effect. Built-in strings: ``"none"`` (default),
         ``"abs_diff"``, ``"squared_diff"``.  Pass a callable for a custom
         effect: ``fn(psi, row_ind, col_ind) -> effect``, where ``psi`` is the
         GP latent variable and ``row_ind``/``col_ind`` are index arrays.
-        See :mod:`spgdmm.models.spatial` for the built-in implementations.
+        See :mod:`gdmbayes.models._spatial` for the built-in implementations.
 
     Examples
     --------
