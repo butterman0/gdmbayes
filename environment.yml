@@ -1,0 +1,47 @@
+name: spgdmm-test
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python>=3.10,<3.12
+  - pip>=23.0
+
+  # Core dependencies
+  - numpy>=1.24
+  - pandas>=2.0
+  - scipy>=1.10
+  - xarray>=2023.1
+  - matplotlib>=3.7
+  - seaborn>=0.12
+
+  # Machine Learning
+  - scikit-learn>=1.3
+  - scikit-image>=0.21
+
+  # Bayesian Modeling
+  - pymc>=5.10
+  - arviz>=0.17
+  - nutpie>=0.10
+
+  # Specialized (conda-only)
+  - geopy>=2.3
+  - metpy  # for grid spacing calculations
+
+  # Development (optional - uncomment if needed)
+  # - pytest>=7.4
+  # - pytest-cov>=4.1
+  # - ruff>=0.1
+  # - mypy>=1.5
+
+  # Jupyter (optional - for notebooks)
+  # - jupyter
+  # - ipython
+
+  - pip:
+    # Install spgdmm in editable mode
+    - -e .
+    # Packages only available via pip
+    - dms-variants>=0.8
+    - ISLP>=0.3
+    - json-tricks>=3.16
+    - properscoring>=0.1

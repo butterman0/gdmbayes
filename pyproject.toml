@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spgdmm"
+version = "1.0.0"
+description = "Spatial Generalized Dissimilarity Mixed Model"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Harold Horsley", email = "harryhorsley9@gmail.com"}
+]
+keywords = [
+    "bayesian",
+    "spatial",
+    "ecology",
+    "dissimilarity",
+    "mixed-model",
+    "gdm"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "pymc>=5.0",
+    "arviz>=0.17",
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "xarray>=2023.1",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "scikit-image>=0.21",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+    "dms-variants>=0.8",
+    "ISLP>=0.3",
+    "json-tricks>=3.16",
+    "properscoring>=0.1",
+    "nutpie>=0.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "mypy>=1.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/harryhorsley9/spgdmm"
+Repository = "https://github.com/harryhorsley9/spgdmm"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"spgdmm" = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
