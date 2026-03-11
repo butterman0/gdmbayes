@@ -5,19 +5,23 @@ This module implements the spGDMM class for modeling pairwise ecological
 dissimilarities as a function of environmental predictors and spatial distance.
 """
 
+import hashlib
 import json
 import typing as t
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 
 import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm
+import xarray as xr
 from scipy.spatial.distance import pdist
+from sklearn.base import BaseEstimator
+from sklearn.utils.validation import check_is_fitted
 
-from ..core._base import ModelBuilder
-from ..core._config import PreprocessorConfig
+from ..preprocessing._config import PreprocessorConfig
 from ..preprocessing._preprocessor import GDMPreprocessor
 from ._config import ModelConfig, SamplerConfig
 from ._variance import VARIANCE_FUNCTIONS
@@ -51,7 +55,7 @@ class TrainingMetadata:
     I_spline_bases: np.ndarray         # (n_sites, n_predictors * n_bases)
 
 
-class spGDMM(ModelBuilder):
+class spGDMM(BaseEstimator):
     """
     Spatial Generalized Dissimilarity Mixed Model.
 
@@ -129,31 +133,38 @@ class spGDMM(ModelBuilder):
                     DeprecationWarning,
                     stacklevel=2,
                 )
-                # Auto-forward to preprocessor
                 prep_kwargs = {k: model_config[k] for k in legacy_keys}
                 self.preprocessor = GDMPreprocessor(
                     config=PreprocessorConfig.from_dict(prep_kwargs)
                 )
             self._config = ModelConfig.from_dict(model_config)
+            # Store the exact dict reference so sklearn.clone() identity check passes.
+            self.model_config = model_config
         elif isinstance(model_config, ModelConfig):
             self._config = model_config
+            self.model_config = self._config.to_dict()
         else:
             self._config = ModelConfig()
+            self.model_config = self._config.to_dict()
 
         # ------------------------------------------------------------------ #
         # Sampler config
         # ------------------------------------------------------------------ #
         if isinstance(sampler_config, SamplerConfig):
             sampler_config = sampler_config.to_dict()
+        elif sampler_config is None:
+            sampler_config = self.get_default_sampler_config()
 
+        self.sampler_config = sampler_config
+
+        self.model = None
+        self.idata: az.InferenceData | None = None
         self._config_dict = self._config.to_dict()
         self.metadata: ModelMetadata | None = None
         self.training_metadata: TrainingMetadata | None = None
         # Populated after each _transform_for_prediction call with clipping/NaN stats.
         self.prediction_metadata: dict | None = None
         self.n_features_in_: int | None = None
-
-        super().__init__(model_config=self._config.to_dict(), sampler_config=sampler_config)
 
     @property
     def config(self) -> dict:
@@ -166,8 +177,9 @@ class spGDMM(ModelBuilder):
         """
         Preprocess model data before fitting.
 
-        Delegates to ``self.preprocessor.fit()`` to compute spline meshes,
-        then populates ``TrainingMetadata`` and ``ModelMetadata``.
+        Delegates to ``self.preprocessor.fit()`` to compute spline meshes
+        (unless the preprocessor is already fitted), then populates
+        ``TrainingMetadata`` and ``ModelMetadata``.
 
         Parameters
         ----------
@@ -179,7 +191,6 @@ class spGDMM(ModelBuilder):
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
 
-        # Handle y as pre-computed condensed dissimilarities
         y_array = np.asarray(y, dtype=float)
         log_y = np.log(np.maximum(y_array, np.finfo(float).eps))
 
@@ -189,11 +200,11 @@ class spGDMM(ModelBuilder):
         n_sites = X.shape[0]
         self._pair_indices = np.triu_indices(n_sites, k=1)
 
-        # Fit the preprocessor — computes meshes and per-site I-spline bases
-        self.preprocessor.fit(X)
+        # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
+        if not hasattr(self.preprocessor, "n_predictors_"):
+            self.preprocessor.fit(X)
         prep = self.preprocessor
 
-        # Retrieve preprocessor config for spline counting
         cfg = prep._get_config()
         n_spline_bases = prep.n_spline_bases_
         n_predictors = prep.n_predictors_
@@ -271,7 +282,6 @@ class spGDMM(ModelBuilder):
         **kwargs : keyword arguments
             Additional arguments (ignored; accepted for API compatibility).
         """
-        # When called by load(), metadata is None — run preprocessing first.
         if self.metadata is None:
             self._generate_and_preprocess_model_data(X, log_y)
 
@@ -289,13 +299,10 @@ class spGDMM(ModelBuilder):
             "basis_function": np.arange(1, n_spline_bases + 1),
         }
 
-        # Model construction
         with pm.Model(coords=self.model_coords) as model:
-            # Define mutable data containers
             X_data = pm.Data("X_data", X_values, dims=("obs_pair", "predictor"))
             log_y_data = pm.Data("log_y_data", log_y_values, dims=("obs_pair",))
 
-            # Define priors
             beta_0 = pm.Normal("beta_0", mu=0, sigma=10)
 
             if self._config.alpha_importance:
@@ -303,37 +310,31 @@ class spGDMM(ModelBuilder):
                 F = len(self.metadata.predictors)
 
                 if F > 0:
-                    # Dirichlet prior over I-spline weights
                     beta = pm.Dirichlet(
                         "beta", a=np.ones(J),
                         shape=(F, J),
                         dims=("feature", "basis_function")
                     )
 
-                    # I-spline dot product
                     n_cols_env = self.metadata.no_cols_env
                     n_cols_dist = self.metadata.no_cols_dist
                     X_env = X_data[:, :n_cols_env]
                     X_reshaped = X_env.reshape((-1, F, J))
                     warped = (X_reshaped * beta[None, :, :]).sum(axis=2)
 
-                    # Alpha importance weights
                     alpha = pm.HalfNormal("alpha", sigma=1, shape=F, dims=("feature",))
                     mu = beta_0 + pm.math.dot(warped, alpha)
 
-                    # Add distance spline coefficients
                     if n_cols_dist > 0:
                         dist_cols = X_data[:, n_cols_env:]
                         beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=1, shape=n_cols_dist)
                         mu = mu + pm.math.dot(dist_cols, beta_dist)
                 else:
-                    # No predictors, just distance
                     mu = beta_0
             else:
                 beta = pm.LogNormal("beta", mu=0, sigma=1, shape=self.metadata.no_cols)
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
-            # Variance structure
             variance_fn = (
                 self._config.variance
                 if callable(self._config.variance)
@@ -341,7 +342,6 @@ class spGDMM(ModelBuilder):
             )
             sigma2 = variance_fn(mu, self.metadata.X_sigma)
 
-            # Spatial random effects
             if self._config.spatial_effect != "none":
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
                 location_values = self.training_metadata.location_values_train
@@ -360,7 +360,6 @@ class spGDMM(ModelBuilder):
                 )
                 mu += spatial_fn(psi, row_ind, col_ind)
 
-            # Observed data with censored likelihood
             pm.Censored(
                 "log_y",
                 pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
@@ -397,7 +396,6 @@ class spGDMM(ModelBuilder):
         if self.idata is None or "posterior" not in self.idata:
             raise ValueError("Model must be fitted before transforming data.")
 
-        # Validate predictor count against training
         X_values = X_pred.iloc[:, 3:].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, 3:]
         if self.n_features_in_ is not None and X_values.shape[1] != self.n_features_in_:
             raise ValueError(
@@ -445,6 +443,285 @@ class spGDMM(ModelBuilder):
                 message="The group constant_data is not defined",
             )
             idata.add_groups(constant_data=ds)
+
+    # ------------------------------------------------------------------ #
+    # Lifecycle methods (inlined from ModelBuilder, bugs fixed)
+    # ------------------------------------------------------------------ #
+
+    def _sample_model(self, **kwargs) -> az.InferenceData:
+        """Sample from the PyMC model."""
+        if self.model is None:
+            raise RuntimeError(
+                "The model hasn't been built yet, call .build_model() first or .fit() instead."
+            )
+        with self.model:
+            sampler_args = {**self.sampler_config, **kwargs}
+            idata = pm.sample(**sampler_args)
+            idata.extend(pm.sample_prior_predictive(), join="right")
+            idata.extend(pm.sample_posterior_predictive(idata), join="right")
+
+        idata = self._set_idata_attrs(idata)
+        return idata
+
+    def _set_idata_attrs(self, idata: az.InferenceData | None = None) -> az.InferenceData:
+        """Set metadata attributes on an InferenceData object."""
+        if idata is None:
+            idata = self.idata
+        if idata is None:
+            raise RuntimeError("No idata provided to set attrs on.")
+        idata.attrs["id"] = self.id
+        idata.attrs["model_type"] = self._model_type
+        idata.attrs["version"] = self.version
+        idata.attrs["sampler_config"] = json.dumps(self.sampler_config)
+        idata.attrs["model_config"] = json.dumps(self._serializable_model_config)
+        self._save_input_params(idata)
+        return idata
+
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series | None = None,
+        progressbar: bool = True,
+        random_seed=None,
+        **kwargs,
+    ) -> az.InferenceData:
+        """
+        Fit the model using the provided data.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            Site-level data with columns [xc, yc, time_idx, predictor1, ...]
+        y : array-like
+            Pairwise Bray-Curtis dissimilarities.
+        progressbar : bool
+            Whether to display a progress bar during sampling.
+        random_seed : int or None
+            Random seed for reproducibility.
+        **kwargs
+            Additional keyword arguments forwarded to the sampler.
+
+        Returns
+        -------
+        az.InferenceData
+        """
+        self.sampler_config = {
+            **self.sampler_config,
+            "progressbar": progressbar,
+            "random_seed": random_seed,
+            **kwargs,
+        }
+
+        if y is None:
+            y = np.zeros(X.shape[0])
+        y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
+
+        self._generate_and_preprocess_model_data(X, y_series.values)
+        self.build_model(self.X, self.y)
+
+        self.idata = self._sample_model()
+
+        combined_data = pd.concat([X, y_series], axis=1)
+        assert all(combined_data.columns), "All columns must have non-empty names"
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message="The group fit_data is not defined in the InferenceData scheme",
+            )
+            self.idata.add_groups(fit_data=combined_data.to_xarray())
+
+        return self.idata
+
+    def save(self, fname: str) -> None:
+        """Save inference data to a file.
+
+        Parameters
+        ----------
+        fname : str
+            Path to the output file.
+        """
+        if self.idata is not None and "posterior" in self.idata:
+            self.idata.to_netcdf(str(fname))
+        else:
+            raise RuntimeError("The model hasn't been fit yet, call .fit() first")
+
+    @classmethod
+    def load(cls, fname: str) -> "spGDMM":
+        """Load a fitted model from a file.
+
+        Parameters
+        ----------
+        fname : str
+            Path to a saved InferenceData file.
+
+        Returns
+        -------
+        spGDMM
+        """
+        filepath = Path(str(fname))
+        idata = az.from_netcdf(filepath)
+
+        model_config = ModelConfig.from_dict(json.loads(idata.attrs["model_config"]))
+        sampler_config = SamplerConfig.from_dict(json.loads(idata.attrs["sampler_config"]))
+
+        # Restore the fitted preprocessor from serialised state — no refitting needed.
+        preprocessor = GDMPreprocessor.from_xarray(idata.constant_data)
+
+        model = cls(
+            preprocessor=preprocessor,
+            model_config=model_config,
+            sampler_config=sampler_config,
+        )
+        model.idata = idata
+
+        # Populate metadata from stored training data using the already-fitted preprocessor.
+        dataset = idata.fit_data.to_dataframe()
+        X = dataset.drop(columns=["log_y"])
+        y_raw = dataset["log_y"]  # stored as raw dissimilarities despite the column name
+        model._generate_and_preprocess_model_data(X, y_raw)
+        model.build_model(model.X, model.y)
+
+        if model.id != idata.attrs["id"]:
+            raise ValueError(
+                f"The file '{fname}' does not contain an inference data of the same model "
+                f"or configuration as '{cls._model_type}'"
+            )
+
+        return model
+
+    def predict(
+        self,
+        X_pred: pd.DataFrame,
+        extend_idata: bool = True,
+        predictions: bool = True,
+        **kwargs,
+    ) -> np.ndarray:
+        """
+        Predict on new data, returning the posterior mean of the output variable.
+
+        Parameters
+        ----------
+        X_pred : pd.DataFrame
+            Site-level data.
+        extend_idata : bool
+            Whether to add predictions to the InferenceData object.
+        predictions : bool
+            Whether to use the predictions group for posterior predictive sampling.
+
+        Returns
+        -------
+        np.ndarray
+        """
+        posterior_predictive_samples = self.sample_posterior_predictive(
+            X_pred, extend_idata, combined=False, predictions=predictions, **kwargs
+        )
+        if self.output_var not in posterior_predictive_samples:
+            raise KeyError(
+                f"Output variable {self.output_var} not found in posterior predictive samples."
+            )
+        return posterior_predictive_samples[self.output_var].mean(
+            dim=["chain", "draw"], keep_attrs=True
+        ).data
+
+    def predict_posterior(
+        self,
+        X_pred: pd.DataFrame,
+        y_pred_obs=None,
+        extend_idata: bool = True,
+        combined: bool = True,
+        predictions: bool = True,
+        **kwargs,
+    ) -> xr.DataArray:
+        """
+        Generate posterior predictive samples on new data.
+
+        Parameters
+        ----------
+        X_pred : pd.DataFrame
+            Site-level data.
+        extend_idata : bool
+            Whether to add predictions to InferenceData.
+        combined : bool
+            Combine chain and draw dims into sample.
+        predictions : bool
+            Whether to use the predictions group.
+
+        Returns
+        -------
+        xr.DataArray
+        """
+        posterior_predictive_samples = self.sample_posterior_predictive(
+            X_pred, extend_idata, combined, y_pred_obs=y_pred_obs,
+            predictions=predictions, **kwargs
+        )
+        if self.output_var not in posterior_predictive_samples:
+            raise KeyError(
+                f"Output variable {self.output_var} not found in posterior predictive samples."
+            )
+        return posterior_predictive_samples[self.output_var]
+
+    def predict_proba(
+        self,
+        X_pred: pd.DataFrame,
+        extend_idata: bool = True,
+        combined: bool = False,
+        **kwargs,
+    ) -> xr.DataArray:
+        """Alias for ``predict_posterior``, for sklearn probabilistic estimator compatibility."""
+        return self.predict_posterior(X_pred, extend_idata=extend_idata, combined=combined, **kwargs)
+
+    def sample_posterior_predictive(
+        self, X_pred, extend_idata, combined, predictions=True, **kwargs
+    ):
+        """Sample from the model's posterior predictive distribution."""
+        self._data_setter(X_pred)
+        with self.model:
+            post_pred = pm.sample_posterior_predictive(
+                self.idata, predictions=predictions, **kwargs
+            )
+            if extend_idata:
+                self.idata.extend(post_pred, join="right")
+        group_name = "predictions" if predictions else "posterior_predictive"
+        return az.extract(post_pred, group_name, combined=combined)
+
+    def sample_prior_predictive(
+        self,
+        X_pred,
+        y_pred=None,
+        samples: int | None = None,
+        extend_idata: bool = False,
+        combined: bool = True,
+        **kwargs,
+    ):
+        """Sample from the model's prior predictive distribution."""
+        if y_pred is None:
+            y_pred = pd.Series(np.zeros(len(X_pred)), name=self.output_var)
+        if samples is None:
+            samples = self.sampler_config.get("draws", 500)
+
+        if self.model is None:
+            self.build_model(X_pred, y_pred)
+        else:
+            self._data_setter(X_pred, y_pred)
+        with self.model:
+            prior_pred: az.InferenceData = pm.sample_prior_predictive(samples, **kwargs)
+            self._set_idata_attrs(prior_pred)
+            if extend_idata:
+                if self.idata is not None:
+                    self.idata.extend(prior_pred, join="right")
+                else:
+                    self.idata = prior_pred
+        return az.extract(prior_pred, "prior_predictive", combined=combined)
+
+    @property
+    def id(self) -> str:
+        """Generate a unique hash value for the model based on config and version."""
+        hasher = hashlib.sha256()
+        hasher.update(str(self._config.to_dict().values()).encode())
+        hasher.update(self.version.encode())
+        hasher.update(self._model_type.encode())
+        return hasher.hexdigest()[:16]
 
     @property
     def output_var(self) -> str:

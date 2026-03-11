@@ -19,7 +19,7 @@ import arviz as az
 
 from ._spgdmm import spGDMM
 from ._config import ModelConfig, SamplerConfig
-from ..core._config import PreprocessorConfig
+from ..preprocessing._config import PreprocessorConfig
 from ..preprocessing._preprocessor import GDMPreprocessor
 
 # Type alias for InferenceData
