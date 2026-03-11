@@ -750,4 +750,28 @@ def ispline_extract(model) -> dict:
     return result
 
 
-__all__ = ["GDMModel", "GDMResult", "gdm", "gdm_transform", "ispline_extract"]
+def rgb_biological_space(model, X_pred: pd.DataFrame, metric: str = "median") -> xr.DataArray:
+    """
+    Compute RGB biological-space map via PCA on I-spline transformed predictors.
+
+    R equivalent: gdm.transform() + PCA + RGB colour assignment.
+
+    Parameters
+    ----------
+    model : spGDMM or GDMModel
+        Fitted model.
+    X_pred : pd.DataFrame
+        Site-level data. Index must be MultiIndex (yc, xc).
+    metric : str, default="median"
+        Posterior summary: "mean" or "median".
+
+    Returns
+    -------
+    xr.DataArray
+        Dims (time, xc, yc, rgb) with rgb in {R, G, B}, values in [0, 1].
+    """
+    spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
+    return spgdmm_model.rgb_biological_space(X_pred, metric=metric)
+
+
+__all__ = ["GDMModel", "GDMResult", "gdm", "gdm_transform", "ispline_extract", "rgb_biological_space"]

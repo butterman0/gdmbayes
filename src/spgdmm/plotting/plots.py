@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 import arviz as az
 import matplotlib.pyplot as plt
 from dms_variants.ispline import Isplines
@@ -323,9 +324,67 @@ def plot_ppc(idata, y_obs, n_pp_samples=200, figsize=(6, 4)):
     return fig, ax
 
 
+def rgb_from_biological_space(transformed_da: xr.DataArray) -> xr.DataArray:
+    """
+    PCA-based RGB map from a weighted biological-space DataArray.
+
+    Parameters
+    ----------
+    transformed_da : xr.DataArray
+        Output of spGDMM._predict_biological_space(). Dims (time, grid_cell, feature)
+        where grid_cell is a MultiIndex coord with levels (yc, xc).
+
+    Returns
+    -------
+    xr.DataArray
+        Dims (time, xc, yc, rgb) with rgb in {R, G, B}, values in [0, 1].
+    """
+    from sklearn.decomposition import PCA
+
+    tf = transformed_da.unstack("grid_cell")
+    valid = ~tf.isnull().any(dim="feature")
+    X_all = tf.where(valid).stack(sample=("time", "yc", "xc")).dropna(dim="sample")
+    if X_all.sizes["sample"] == 0:
+        raise ValueError("No fully observed rows available for PCA.")
+    X_mat = X_all.transpose("sample", "feature").values
+
+    pca = PCA(n_components=3).fit(X_mat)
+    PC_ref = pca.transform(X_mat)
+    pc_min, pc_max = PC_ref.min(axis=0), PC_ref.max(axis=0)
+    pc_rng = np.where(pc_max > pc_min, pc_max - pc_min, 1.0)
+
+    X_full = tf.transpose("time", "yc", "xc", "feature").stack(sample=("time", "yc", "xc"))
+    X_valid = X_full.sel(sample=X_all["sample"]).transpose("sample", "feature").values
+    PC_curr = pca.transform(X_valid)
+
+    pcs_full = xr.DataArray(
+        np.full((tf.sizes["time"], tf.sizes["yc"], tf.sizes["xc"], 3), np.nan, dtype=float),
+        dims=("time", "yc", "xc", "pc"),
+        coords={"time": tf["time"], "yc": tf["yc"], "xc": tf["xc"], "pc": range(3)},
+    ).stack(sample=("time", "yc", "xc"))
+
+    pcs_full.loc[dict(sample=X_all["sample"])] = xr.DataArray(
+        PC_curr, dims=("sample", "pc"), coords={"sample": X_all["sample"], "pc": pcs_full["pc"]}
+    )
+    pcs_full = pcs_full.unstack("sample")
+
+    pcs_norm = (
+        pcs_full - xr.DataArray(pc_min, dims="pc", coords={"pc": pcs_full["pc"]})
+    ) / xr.DataArray(pc_rng, dims="pc", coords={"pc": pcs_full["pc"]})
+    pcs_norm = xr.where(
+        xr.DataArray(pc_max == pc_min, dims="pc", coords={"pc": pcs_full["pc"]}),
+        0.5,
+        pcs_norm,
+    )
+
+    rgb_da = pcs_norm.assign_coords(pc=["R", "G", "B"]).rename(pc="rgb")
+    return rgb_da.transpose("time", "xc", "yc", "rgb")
+
+
 __all__ = [
     "plot_isplines",
     "plot_crps_comparison",
     "summarise_sampling",
     "plot_ppc",
+    "rgb_from_biological_space",
 ]
