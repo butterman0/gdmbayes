@@ -770,8 +770,9 @@ def rgb_biological_space(model, X_pred: pd.DataFrame, metric: str = "median") ->
     xr.DataArray
         Dims (time, xc, yc, rgb) with rgb in {R, G, B}, values in [0, 1].
     """
+    from spgdmm.plotting.plots import rgb_biological_space as _rgb
     spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
-    return spgdmm_model.rgb_biological_space(X_pred, metric=metric)
+    return _rgb(spgdmm_model.idata, X_pred, metric=metric)
 
 
 __all__ = ["GDMModel", "GDMResult", "gdm", "gdm_transform", "ispline_extract", "rgb_biological_space"]
