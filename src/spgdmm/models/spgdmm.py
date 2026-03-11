@@ -137,11 +137,14 @@ class spGDMM(ModelBuilder):
         location_values = X.iloc[:, :2].values if X.shape[1] >= 2 else np.zeros((X.shape[0], 2))
         time_idxs = X.iloc[:, 2].values if X.shape[1] >= 3 else np.zeros(X.shape[0])
 
-        # Environmental predictors
+        # Environmental predictors — preserve column names when X is a DataFrame
         if X.shape[1] >= 4:
-            X_values = X.iloc[:, 3:].values
+            pred_cols = X.iloc[:, 3:]
+            X_values = pred_cols.values
+            predictor_names_from_data = list(pred_cols.columns)
         else:
             X_values = np.empty((X.shape[0], 0))
+            predictor_names_from_data = []
 
         # Handle y as pre-computed condensed dissimilarities
         # Add small epsilon to avoid log(0) - zeros are handled by censored likelihood
@@ -236,6 +239,9 @@ class spGDMM(ModelBuilder):
         if X_values.shape[1] > 0:
             n_predictors = X_values.shape[1]
             n_spline_bases = self._config.deg + self._config.knots
+            # Fall back to generic names only for plain arrays
+            if not predictor_names_from_data or len(predictor_names_from_data) != n_predictors:
+                predictor_names_from_data = [f"pred_{i}" for i in range(n_predictors)]
 
             Expanded_mesh = predictor_mesh
             X_expanded = X_values
