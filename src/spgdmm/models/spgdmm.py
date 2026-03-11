@@ -100,9 +100,11 @@ class spGDMM(ModelBuilder):
             self._config = ModelConfig()
 
         self._config_dict = self._config.to_dict()
-        self.metadata = None
-        self.training_metadata = None
-        self.prediction_metadata = None
+        self.metadata: ModelMetadata | None = None
+        self.training_metadata: TrainingMetadata | None = None
+        # Populated after each _transform_for_prediction call with clipping/NaN stats.
+        self.prediction_metadata: dict | None = None
+        self.n_features_in_: int | None = None
 
         super().__init__(model_config=self._config.to_dict(), sampler_config=sampler_config)
 
