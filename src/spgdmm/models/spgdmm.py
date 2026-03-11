@@ -289,27 +289,28 @@ class spGDMM(ModelBuilder):
         n_cols_env = I_spline_bases_diffs.shape[1] if I_spline_bases_diffs.size > 0 else 0
         n_cols_dist = dist_spline_bases.shape[1] if dist_spline_bases.size > 0 else 0
 
-        self.metadata = {
-            "no_sites_train": n_sites,
-            "no_sites": n_sites,
-            "no_predictors": n_predictors,
-            "no_rows": X_GDM.shape[0],
-            "no_cols": X_GDM.shape[1],
-            "no_cols_env": n_cols_env,
-            "no_cols_dist": n_cols_dist,
-            "predictors": [f"pred_{i}" for i in range(n_predictors)] if n_predictors > 0 else [],
-            "column_names": [f"x_{i}" for i in range(X_GDM.shape[1])],
-            "X_sigma": pw_dist_clipped.reshape(-1, 1) if n_predictors > 0 else None,
-            "p_sigma": 1 if n_predictors > 0 else 0,
-        }
+        self.metadata = ModelMetadata(
+            no_sites_train=n_sites,
+            no_predictors=n_predictors,
+            no_rows=X_GDM.shape[0],
+            no_cols=X_GDM.shape[1],
+            no_cols_env=n_cols_env,
+            no_cols_dist=n_cols_dist,
+            predictors=predictor_names_from_data if n_predictors > 0 else [],
+            column_names=[f"x_{i}" for i in range(X_GDM.shape[1])],
+            X_sigma=pw_dist_clipped.reshape(-1, 1) if n_predictors > 0 else None,
+            p_sigma=1 if n_predictors > 0 else 0,
+        )
 
-        self.training_metadata = {
-            "location_values_train": location_values,
-            "predictor_mesh": predictor_mesh,
-            "dist_mesh": dist_mesh,
-            "length_scale": np.median(pw_distance) if len(pw_distance) > 0 else 100,
-            "I_spline_bases": I_spline_bases,
-        }
+        self.training_metadata = TrainingMetadata(
+            location_values_train=location_values,
+            predictor_mesh=predictor_mesh,
+            dist_mesh=dist_mesh,
+            length_scale=float(np.median(pw_distance)) if len(pw_distance) > 0 else 100.0,
+            I_spline_bases=I_spline_bases,
+        )
+
+        self.n_features_in_ = n_predictors
 
         self.X_transformed = X_GDM
         self.y_transformed = log_y
