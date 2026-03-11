@@ -111,6 +111,20 @@ class ModelConfig:
     This dataclass encapsulates all configuration parameters for the spGDMM model,
     including I-spline settings, distance measures, predictor settings, variance
     structure, and spatial effects.
+
+    Parameters
+    ----------
+    extrapolation : {"clip", "error", "nan"}, default "clip"
+        Controls behaviour when prediction data fall outside the training mesh bounds.
+
+        * ``"clip"``  — clamp out-of-range values to the mesh boundary and issue a
+          warning (previous behaviour, mathematically equivalent to constant
+          extrapolation at the I-spline saturation value).
+        * ``"error"`` — raise ``ValueError`` on any out-of-range value; useful for
+          strict pipeline validation.
+        * ``"nan"``   — propagate ``NaN`` through: sites with any out-of-range
+          environmental predictor yield NaN I-spline outputs, and pairs with an
+          out-of-range distance yield NaN distance-spline outputs.
     """
 
     # I-spline settings
@@ -141,6 +155,9 @@ class ModelConfig:
     time_varying: bool = True
     connectivity_percentile: Optional[int] = None
 
+    # Prediction settings
+    extrapolation: Literal["clip", "error", "nan"] = "clip"
+
     def to_dict(self) -> dict:
         """Convert to dictionary suitable for serialization."""
         return {
@@ -160,6 +177,7 @@ class ModelConfig:
             "updated_predictor_mesh": self.updated_predictor_mesh,
             "time_varying": self.time_varying,
             "connectivity_percentile": self.connectivity_percentile,
+            "extrapolation": self.extrapolation,
         }
 
     @classmethod
@@ -191,6 +209,7 @@ class ModelConfig:
             updated_predictor_mesh=config_dict.get("updated_predictor_mesh", True),
             time_varying=config_dict.get("time_varying", True),
             connectivity_percentile=config_dict.get("connectivity_percentile"),
+            extrapolation=config_dict.get("extrapolation", "clip"),
         )
 
     @classmethod

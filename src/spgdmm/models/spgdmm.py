@@ -474,6 +474,13 @@ class spGDMM(ModelBuilder):
         -------
         np.ndarray
             Transformed feature matrix.
+
+        Notes
+        -----
+        Out-of-range behaviour (values outside the training mesh bounds) is controlled
+        by ``self._config.extrapolation``: ``"clip"`` (default) clamps and warns,
+        ``"error"`` raises ``ValueError``, ``"nan"`` propagates NaN for affected
+        sites or pairs.
         """
         if not isinstance(X_pred, (pd.DataFrame, np.ndarray)):
             raise TypeError("X must be Pandas DataFrame or numpy array")
@@ -493,19 +500,33 @@ class spGDMM(ModelBuilder):
 
         # predictor_mesh shape: (n_predictors, n_knot_points)
         predictor_mesh = self.training_metadata.predictor_mesh
+        mode = self._config.extrapolation
 
-        # Compute clipping stats on non-NaN cells only to avoid spurious warnings
+        # Compute out-of-range stats on non-NaN cells only to avoid spurious warnings
         NaN_mask_raw = np.isnan(X_values)
         valid_mask = ~NaN_mask_raw.any(axis=1)
         X_valid = X_values[valid_mask]
-        X_valid_clipped = np.clip(X_valid, predictor_mesh[:, 0], predictor_mesh[:, -1])
-        n_clipped_env = int(np.sum(X_valid_clipped != X_valid))
-        if n_clipped_env > 0:
-            warnings.warn(f"{n_clipped_env} env values were clipped to predictor_mesh bounds.")
+        lo, hi = predictor_mesh[:, 0], predictor_mesh[:, -1]
+        out_of_range_env = (X_valid < lo) | (X_valid > hi)
+        n_clipped_env = int(out_of_range_env.sum())
 
-        # Rebuild full clipped array (NaN rows remain NaN)
+        if n_clipped_env > 0:
+            if mode == "error":
+                raise ValueError(
+                    f"{n_clipped_env} env values are outside predictor_mesh bounds."
+                )
+            elif mode == "clip":
+                warnings.warn(f"{n_clipped_env} env values were clipped to predictor_mesh bounds.")
+
+        if mode == "nan" and n_clipped_env > 0:
+            X_valid_processed = X_valid.copy().astype(float)
+            X_valid_processed[out_of_range_env.any(axis=1)] = np.nan
+        else:
+            X_valid_processed = np.clip(X_valid, lo, hi)
+
+        # Rebuild full array (NaN rows remain NaN)
         X_values_clipped = np.where(NaN_mask_raw, np.nan, 0.0)  # placeholder
-        X_values_clipped[valid_mask] = X_valid_clipped
+        X_values_clipped[valid_mask] = X_valid_processed
         X_values_clipped[~valid_mask] = np.nan
 
         NaN_mask = np.isnan(X_values_clipped)
@@ -537,15 +558,33 @@ class spGDMM(ModelBuilder):
 
         pw_distance = self.pw_distance(location_values)
         dist_mesh = self.training_metadata.dist_mesh
-        pw_distance_clipped = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
-        n_clipped_dist = int(np.sum(pw_distance_clipped != pw_distance))
-        if n_clipped_dist > 0:
-            warnings.warn(f"{n_clipped_dist} pairwise distances were clipped to dist_mesh bounds.")
+        out_of_range_dist = (pw_distance < dist_mesh[0]) | (pw_distance > dist_mesh[-1])
+        n_clipped_dist = int(out_of_range_dist.sum())
 
-        dist_predictors = np.column_stack([
-            Isplines(self._config.deg, dist_mesh, pw_distance_clipped).I(j)
-            for j in range(1, n_spline_bases + 1)
-        ])
+        if n_clipped_dist > 0:
+            if mode == "error":
+                raise ValueError(
+                    f"{n_clipped_dist} pairwise distances are outside dist_mesh bounds."
+                )
+            elif mode == "clip":
+                warnings.warn(f"{n_clipped_dist} pairwise distances were clipped to dist_mesh bounds.")
+
+        if mode == "nan" and n_clipped_dist > 0:
+            pw_distance_processed = pw_distance.astype(float).copy()
+            pw_distance_processed[out_of_range_dist] = np.nan
+            valid_dist = ~out_of_range_dist
+            dist_predictors = np.full((len(pw_distance), n_spline_bases), np.nan)
+            if valid_dist.any():
+                dist_predictors[valid_dist] = np.column_stack([
+                    Isplines(self._config.deg, dist_mesh, pw_distance_processed[valid_dist]).I(j)
+                    for j in range(1, n_spline_bases + 1)
+                ])
+        else:
+            pw_distance_processed = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
+            dist_predictors = np.column_stack([
+                Isplines(self._config.deg, dist_mesh, pw_distance_processed).I(j)
+                for j in range(1, n_spline_bases + 1)
+            ])
 
         self.prediction_metadata = {
             "n_sites_pred": X_values.shape[0],
