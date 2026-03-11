@@ -1,4 +1,4 @@
-"""Model variant definitions for spGDMM."""
+"""Configuration dataclasses for the spGDMM Bayesian estimator."""
 
 import warnings
 from dataclasses import dataclass
@@ -67,11 +67,13 @@ class ModelConfig:
         ``"covariate_dependent"``, ``"polynomial"``.  Pass a callable for a
         custom structure: ``fn(mu, X_sigma) -> sigma2``, where ``mu`` is a
         PyTensor variable and ``X_sigma`` is an np.ndarray or None.
+        See :mod:`spgdmm.models.variance` for the built-in implementations.
     spatial_effect : str or callable
         Spatial random effect. Built-in strings: ``"none"`` (default),
         ``"abs_diff"``, ``"squared_diff"``.  Pass a callable for a custom
         effect: ``fn(psi, row_ind, col_ind) -> effect``, where ``psi`` is the
         GP latent variable and ``row_ind``/``col_ind`` are index arrays.
+        See :mod:`spgdmm.models.spatial` for the built-in implementations.
 
     Examples
     --------
