@@ -156,6 +156,7 @@ class spGDMM(ModelBuilder):
 
         # Create metadata
         n_sites = X.shape[0]
+        self._pair_indices = np.triu_indices(n_sites, k=1)
 
         # Define predictor mesh for I-splines
         if X_values.shape[1] > 0:
@@ -432,7 +433,7 @@ class spGDMM(ModelBuilder):
                 gp = pm.gp.Latent(cov_func=cov)
                 psi = gp.prior("psi", X=location_values, dims=("site_train",))
 
-                row_ind, col_ind = np.triu_indices(location_values.shape[0], k=1)
+                row_ind, col_ind = self._pair_indices
 
                 if self._config.spatial_effect_type == SpatialEffectType.ABS_DIFF:
                     mu += pm.math.abs(psi[row_ind] - psi[col_ind])
