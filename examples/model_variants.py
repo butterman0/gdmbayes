@@ -86,7 +86,7 @@ config_custom = ModelConfig(
     alpha_importance=True,
 )
 
-model_custom = spGDMM(config=config_custom)
+model_custom = spGDMM(model_config=config_custom)
 print(f"\nCreated custom model:")
 print(f"  Variance: {model_custom._config.variance_type}")
 print(f"  Spatial: {model_custom._config.spatial_effect_type}")

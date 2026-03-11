@@ -208,7 +208,7 @@ class GDMModel:
 
         self.sampler_config = sampler_config if sampler_config else SamplerConfig()
 
-        self._spgdmm = spGDMM(config=self.model_config, sampler_config=self.sampler_config.to_dict())
+        self._spgdmm = spGDMM(model_config=self.model_config, sampler_config=self.sampler_config.to_dict())
         self._fit_data: pd.DataFrame | None = None
         self._fit_result: GDMResult | None = None
         self._site_pair_columns: dict | None = None
