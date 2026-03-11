@@ -5,9 +5,12 @@ This module implements the spGDMM class for modeling pairwise ecological
 dissimilarities as a function of environmental predictors and spatial distance.
 """
 
+import json
 import typing as t
 import warnings
+from dataclasses import dataclass
 
+import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm
@@ -18,6 +21,34 @@ from dms_variants.ispline import Isplines
 
 from ..core.base import ModelBuilder
 from .variants import ModelConfig, VarianceType, SpatialEffectType
+
+
+@dataclass
+class ModelMetadata:
+    """Column counts, predictor names, and variance-model data for a fitted spGDMM."""
+
+    no_sites_train: int
+    no_predictors: int
+    no_rows: int
+    no_cols: int
+    no_cols_env: int
+    no_cols_dist: int
+    predictors: list        # semantic predictor names
+    column_names: list      # feature-matrix column names
+    X_sigma: np.ndarray | None   # pairwise distance column for variance model
+    p_sigma: int            # 1 if X_sigma is used, 0 otherwise
+
+
+@dataclass
+class TrainingMetadata:
+    """Spline meshes and spatial state needed to transform new data consistently."""
+
+    location_values_train: np.ndarray  # (n_sites, 2) site coordinates
+    predictor_mesh: np.ndarray         # (n_predictors, n_knot_points)
+    dist_mesh: np.ndarray              # (n_knot_points,)
+    length_scale: float                # GP spatial length scale
+    I_spline_bases: np.ndarray         # (n_sites, n_predictors * n_bases)
+
 
 if t.TYPE_CHECKING:
     from ..distances.ocean import ocean_path_distance_pdist
