@@ -57,11 +57,8 @@ from .plotting._plots import (
     rgb_from_biological_space,
 )
 
-# Core utilities
-from .core._base import ModelBuilder
-from .core._config import PreprocessorConfig
-
 # Preprocessing
+from .preprocessing._config import PreprocessorConfig
 from .preprocessing._preprocessor import GDMPreprocessor
 
 # Utilities
@@ -105,8 +102,6 @@ __all__ = [
     "summarise_sampling",
     "plot_ppc",
     "rgb_from_biological_space",
-    # Core
-    "ModelBuilder",
     # Utilities
     "format_site_pair",
     "BioFormat",

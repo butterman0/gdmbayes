@@ -1,4 +1,4 @@
-"""Configuration management for spGDMM models."""
+"""Configuration for GDMPreprocessor."""
 
 from dataclasses import dataclass
 from typing import Literal, Optional
