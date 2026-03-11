@@ -96,6 +96,16 @@ class ModelConfig:
     ...     spatial_effect_type=SpatialEffectType.CUSTOM,
     ...     custom_spatial_effect_fn=my_spatial,
     ... )
+
+    Extrapolation modes:
+
+    ``extrapolation`` controls what happens when prediction data fall outside the
+    bounds of the training mesh:
+
+    * ``"clip"`` (default) — clamp to boundary and warn (constant extrapolation at
+      the I-spline saturation value).
+    * ``"error"`` — raise ``ValueError`` on any out-of-range value.
+    * ``"nan"`` — propagate ``NaN`` for affected sites/pairs rather than clipping.
     """
 
     # I-spline settings
@@ -128,6 +138,9 @@ class ModelConfig:
     time_varying: bool = True
     connectivity_percentile: Optional[int] = None
 
+    # Prediction settings
+    extrapolation: Literal["clip", "error", "nan"] = "clip"
+
     def to_dict(self) -> dict:
         """Convert to dictionary suitable for serialization.
 
@@ -151,6 +164,7 @@ class ModelConfig:
             "updated_predictor_mesh": self.updated_predictor_mesh,
             "time_varying": self.time_varying,
             "connectivity_percentile": self.connectivity_percentile,
+            "extrapolation": self.extrapolation,
         }
 
     @classmethod
@@ -181,6 +195,7 @@ class ModelConfig:
             updated_predictor_mesh=config_dict.get("updated_predictor_mesh", True),
             time_varying=config_dict.get("time_varying", True),
             connectivity_percentile=config_dict.get("connectivity_percentile"),
+            extrapolation=config_dict.get("extrapolation", "clip"),
         )
 
 

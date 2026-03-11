@@ -1,5 +1,8 @@
 """Tests for spGDMM model implementation."""
 
+import warnings
+
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
@@ -228,3 +231,94 @@ class TestDataPreprocessing:
         assert "beta_0" in model.model.named_vars
         # With alpha_importance=True, the model has beta, alpha, beta_dist for distance splines
         assert "beta" in model.model.named_vars
+
+
+class TestExtrapolation:
+    """Test extrapolation mode handling in _transform_for_prediction."""
+
+    @pytest.fixture
+    def fitted_model(self):
+        """Set up a preprocessed model with a stub idata so _transform_for_prediction runs."""
+        np.random.seed(0)
+        n_sites = 15
+        X = pd.DataFrame({
+            "xc": np.linspace(0, 100, n_sites),
+            "yc": np.linspace(0, 100, n_sites),
+            "time_idx": np.zeros(n_sites, dtype=int),
+            "temp": np.linspace(5, 20, n_sites),
+        })
+        biomass = np.random.exponential(1, (n_sites, 5))
+        y = pdist(biomass, "braycurtis")
+        y = np.clip(y, 1e-8, None)
+
+        model = spGDMM()
+        model._generate_and_preprocess_model_data(X, y)
+        # Minimal stub so the fitted-check passes
+        model.idata = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
+        return model, X
+
+    def _make_oob_X(self, X_train):
+        """Return a copy of X with one site's predictor pushed out of training range."""
+        X_pred = X_train.copy()
+        X_pred.iloc[0, 3] = X_train.iloc[:, 3].max() + 50  # far above max temp
+        return X_pred
+
+    def test_default_extrapolation_is_clip(self):
+        config = ModelConfig()
+        assert config.extrapolation == "clip"
+
+    def test_extrapolation_in_to_dict(self):
+        config = ModelConfig(extrapolation="error")
+        d = config.to_dict()
+        assert d["extrapolation"] == "error"
+
+    def test_extrapolation_in_from_dict(self):
+        config = ModelConfig.from_dict({"extrapolation": "nan"})
+        assert config.extrapolation == "nan"
+
+    def test_from_dict_missing_extrapolation_defaults_to_clip(self):
+        config = ModelConfig.from_dict({})
+        assert config.extrapolation == "clip"
+
+    def test_clip_mode_warns(self, fitted_model):
+        model, X = fitted_model
+        X_oob = self._make_oob_X(X)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            model._transform_for_prediction(X_oob)
+        assert any("clipped" in str(w.message).lower() for w in caught)
+
+    def test_clip_mode_returns_array(self, fitted_model):
+        model, X = fitted_model
+        X_oob = self._make_oob_X(X)
+        result = model._transform_for_prediction(X_oob)
+        assert isinstance(result, np.ndarray)
+        assert not np.isnan(result).any()
+
+    def test_error_mode_raises(self, fitted_model):
+        model, X = fitted_model
+        model._config.extrapolation = "error"
+        X_oob = self._make_oob_X(X)
+        with pytest.raises(ValueError, match="outside predictor_mesh bounds"):
+            model._transform_for_prediction(X_oob)
+
+    def test_error_mode_no_raise_in_range(self, fitted_model):
+        model, X = fitted_model
+        model._config.extrapolation = "error"
+        # Should not raise when all values are within training range
+        model._transform_for_prediction(X)
+
+    def test_nan_mode_produces_nans(self, fitted_model):
+        model, X = fitted_model
+        model._config.extrapolation = "nan"
+        X_oob = self._make_oob_X(X)
+        result = model._transform_for_prediction(X_oob)
+        # Some rows must contain NaN (pairs involving the out-of-range site)
+        assert np.isnan(result).any()
+
+    def test_nan_mode_inrange_pairs_are_finite(self, fitted_model):
+        model, X = fitted_model
+        model._config.extrapolation = "nan"
+        # All in-range — no NaN expected
+        result = model._transform_for_prediction(X)
+        assert not np.isnan(result).any()
