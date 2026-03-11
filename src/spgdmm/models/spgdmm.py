@@ -14,7 +14,6 @@ import arviz as az
 import numpy as np
 import pandas as pd
 import pymc as pm
-import xarray as xr
 from scipy.spatial.distance import pdist
 
 from ..core.base import ModelBuilder
@@ -441,52 +440,6 @@ class spGDMM(ModelBuilder):
             self.preprocessor, "_last_prediction_metadata", None
         )
         return result
-
-    def rgb_biological_space(
-        self, X_pred: pd.DataFrame, metric: str = "median"
-    ) -> xr.DataArray:
-        """
-        Compute RGB biological-space map via PCA on I-spline transformed predictors.
-
-        Equivalent to R's gdm.transform() + manual PCA + RGB colour assignment.
-
-        Parameters
-        ----------
-        X_pred : pd.DataFrame
-            Site-level data. Index must be a MultiIndex with levels (yc, xc)
-            so that grid_cell can be unstacked into a spatial grid.
-        metric : str, default="median"
-            Posterior summary: "median" or "mean".
-
-        Returns
-        -------
-        xr.DataArray
-            Dims (time, xc, yc, rgb) with RGB values normalised to [0, 1].
-        """
-        from spgdmm.plotting.plots import rgb_from_biological_space
-
-        beta = (
-            self.idata.posterior.beta.mean(dim=["chain", "draw"])
-            if metric == "mean"
-            else self.idata.posterior.beta.median(dim=["chain", "draw"])
-        )
-        X_splined = self._transform_for_prediction(X_pred, biological_space=True).reshape(
-            1, -1, beta.sizes["feature"], beta.sizes["basis_function"]
-        )
-        transformed = (
-            xr.DataArray(
-                X_splined,
-                dims=("time", "grid_cell", "feature", "basis_function"),
-                coords={
-                    "time": [0],
-                    "grid_cell": X_pred.index,
-                    "feature": beta["feature"].values,
-                    "basis_function": beta["basis_function"].values,
-                },
-            )
-            * beta
-        ).sum(dim="basis_function", skipna=False)
-        return rgb_from_biological_space(transformed)
 
     def _data_setter(
         self,

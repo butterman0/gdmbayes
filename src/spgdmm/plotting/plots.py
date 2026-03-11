@@ -381,10 +381,65 @@ def rgb_from_biological_space(transformed_da: xr.DataArray) -> xr.DataArray:
     return rgb_da.transpose("time", "xc", "yc", "rgb")
 
 
+def rgb_biological_space(
+    idata: az.InferenceData, X_pred: pd.DataFrame, metric: str = "median"
+) -> xr.DataArray:
+    """Compute RGB biological-space map from a fitted model's InferenceData.
+
+    Equivalent to R's gdm.transform() + PCA + RGB colour assignment. Reconstructs
+    the preprocessing state from ``idata.constant_data`` so no model object is needed.
+
+    Parameters
+    ----------
+    idata : az.InferenceData
+        InferenceData produced by ``spGDMM.fit()`` or loaded via ``spGDMM.load()``.
+        Must contain ``constant_data`` (saved by ``_save_input_params``) and
+        ``posterior`` with a ``beta`` variable of dims (feature, basis_function).
+    X_pred : pd.DataFrame
+        Site-level data with columns [xc, yc, time_idx, predictor1, ...].
+        Index must be a MultiIndex with levels (yc, xc) so that grid_cell can
+        be unstacked into a spatial grid.
+    metric : str, default="median"
+        Posterior summary statistic: "mean" or "median".
+
+    Returns
+    -------
+    xr.DataArray
+        Dims (time, xc, yc, rgb) with rgb in {R, G, B}, values in [0, 1].
+    """
+    from ..preprocessing.preprocessor import GDMPreprocessor
+
+    preprocessor = GDMPreprocessor.from_xarray(idata.constant_data)
+
+    beta = (
+        idata.posterior.beta.mean(dim=["chain", "draw"])
+        if metric == "mean"
+        else idata.posterior.beta.median(dim=["chain", "draw"])
+    )
+    X_splined = preprocessor.transform(X_pred, biological_space=True).reshape(
+        1, -1, beta.sizes["feature"], beta.sizes["basis_function"]
+    )
+    transformed = (
+        xr.DataArray(
+            X_splined,
+            dims=("time", "grid_cell", "feature", "basis_function"),
+            coords={
+                "time": [0],
+                "grid_cell": X_pred.index,
+                "feature": beta["feature"].values,
+                "basis_function": beta["basis_function"].values,
+            },
+        )
+        * beta
+    ).sum(dim="basis_function", skipna=False)
+    return rgb_from_biological_space(transformed)
+
+
 __all__ = [
     "plot_isplines",
     "plot_crps_comparison",
     "summarise_sampling",
     "plot_ppc",
+    "rgb_biological_space",
     "rgb_from_biological_space",
 ]

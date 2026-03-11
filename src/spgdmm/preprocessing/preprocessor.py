@@ -374,6 +374,9 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             }
         )
         ds.attrs["predictor_names"] = json.dumps(self.predictor_names_)
+        cfg = self._get_config()
+        ds.attrs["deg"] = cfg.deg
+        ds.attrs["knots"] = cfg.knots
         return ds
 
     @classmethod
@@ -394,6 +397,8 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         -------
         GDMPreprocessor
         """
+        if config is None and "deg" in ds.attrs and "knots" in ds.attrs:
+            config = PreprocessorConfig(deg=int(ds.attrs["deg"]), knots=int(ds.attrs["knots"]))
         obj = cls(config=config)
         obj.predictor_mesh_ = ds["predictor_mesh"].values
         obj.dist_mesh_ = ds["dist_mesh"].values
