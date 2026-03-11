@@ -1,6 +1,6 @@
 """Core components for spGDMM package."""
 
-from .base import ModelBuilder
-from .config import PreprocessorConfig
+from ._base import ModelBuilder
+from ._config import PreprocessorConfig
 
 __all__ = ["ModelBuilder", "PreprocessorConfig"]

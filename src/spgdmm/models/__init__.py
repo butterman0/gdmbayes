@@ -1,10 +1,10 @@
 """Model implementations for spGDMM."""
 
-from .spgdmm import spGDMM
-from .config import ModelConfig, SamplerConfig
-from .variance import variance_homogeneous, variance_covariate_dependent, variance_polynomial, VARIANCE_FUNCTIONS
-from .spatial import spatial_abs_diff, spatial_squared_diff, SPATIAL_FUNCTIONS
-from .gdm_model import GDMModel, GDMResult, gdm
+from ._spgdmm import spGDMM
+from ._config import ModelConfig, SamplerConfig
+from ._variance import variance_homogeneous, variance_covariate_dependent, variance_polynomial, VARIANCE_FUNCTIONS
+from ._spatial import spatial_abs_diff, spatial_squared_diff, SPATIAL_FUNCTIONS
+from ._gdm_model import GDMModel, GDMResult, gdm
 
 __all__ = [
     "spGDMM",

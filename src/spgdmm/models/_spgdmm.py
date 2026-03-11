@@ -16,12 +16,12 @@ import pandas as pd
 import pymc as pm
 from scipy.spatial.distance import pdist
 
-from ..core.base import ModelBuilder
-from ..core.config import PreprocessorConfig
-from ..preprocessing.preprocessor import GDMPreprocessor
-from .config import ModelConfig, SamplerConfig
-from .variance import VARIANCE_FUNCTIONS
-from .spatial import SPATIAL_FUNCTIONS
+from ..core._base import ModelBuilder
+from ..core._config import PreprocessorConfig
+from ..preprocessing._preprocessor import GDMPreprocessor
+from ._config import ModelConfig, SamplerConfig
+from ._variance import VARIANCE_FUNCTIONS
+from ._spatial import SPATIAL_FUNCTIONS
 
 
 @dataclass
