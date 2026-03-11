@@ -19,8 +19,6 @@ from .models.gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_e
 # Model configuration
 from .models.variants import (
     ModelConfig,
-    VarianceType,
-    SpatialEffectType,
     SamplerConfig,
 )
 
@@ -71,8 +69,6 @@ __all__ = [
     "rgb_biological_space",
     # Model configuration
     "ModelConfig",
-    "VarianceType",
-    "SpatialEffectType",
     "SamplerConfig",
     # Preprocessor
     "PreprocessorConfig",

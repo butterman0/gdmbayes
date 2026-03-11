@@ -19,7 +19,7 @@ from scipy.spatial.distance import pdist
 from ..core.base import ModelBuilder
 from ..core.config import PreprocessorConfig
 from ..preprocessing.preprocessor import GDMPreprocessor
-from .variants import ModelConfig, SamplerConfig, VarianceType, SpatialEffectType
+from .variants import ModelConfig, SamplerConfig
 
 
 @dataclass
@@ -53,6 +53,54 @@ if t.TYPE_CHECKING:
     from ..distances.ocean import ocean_path_distance_pdist
 
 
+# ---------------------------------------------------------------------------
+# Built-in variance strategy functions
+# ---------------------------------------------------------------------------
+
+def _variance_homogeneous(mu, X_sigma):
+    return pm.InverseGamma("sigma2", alpha=1, beta=1)
+
+
+def _variance_covariate_dependent(mu, X_sigma):
+    if X_sigma is not None and X_sigma.shape[1] > 0:
+        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=X_sigma.shape[1])
+        return pm.math.exp(pm.math.dot(X_sigma, beta_sigma))
+    return pm.InverseGamma("sigma2", alpha=1, beta=1)
+
+
+def _variance_polynomial(mu, X_sigma):
+    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=4)
+    return pm.math.exp(
+        beta_sigma[0] + beta_sigma[1] * mu +
+        beta_sigma[2] * mu ** 2 +
+        beta_sigma[3] * mu ** 3
+    )
+
+
+_VARIANCE_STRATEGIES: t.Dict[str, t.Callable] = {
+    "homogeneous": _variance_homogeneous,
+    "covariate_dependent": _variance_covariate_dependent,
+    "polynomial": _variance_polynomial,
+}
+
+# ---------------------------------------------------------------------------
+# Built-in spatial effect strategy functions
+# ---------------------------------------------------------------------------
+
+def _spatial_abs_diff(psi, row_ind, col_ind):
+    return pm.math.abs(psi[row_ind] - psi[col_ind])
+
+
+def _spatial_squared_diff(psi, row_ind, col_ind):
+    return pm.math.abs(psi[row_ind] - psi[col_ind]) ** 2
+
+
+_SPATIAL_STRATEGIES: t.Dict[str, t.Callable] = {
+    "abs_diff": _spatial_abs_diff,
+    "squared_diff": _spatial_squared_diff,
+}
+
+
 class spGDMM(ModelBuilder):
     """
     Spatial Generalized Dissimilarity Mixed Model.
@@ -79,13 +127,9 @@ class spGDMM(ModelBuilder):
 
     Examples
     --------
-    >>> from spgdmm import spGDMM, ModelConfig, PreprocessorConfig, GDMPreprocessor
-    >>> from spgdmm import VarianceType, SpatialEffectType
+    >>> from spgdmm import spGDMM, ModelConfig, PreprocessorConfig
     >>> prep_cfg = PreprocessorConfig(deg=3, knots=2, distance_measure="euclidean")
-    >>> model_cfg = ModelConfig(
-    ...     variance_type=VarianceType.HOMOGENEOUS,
-    ...     spatial_effect_type=SpatialEffectType.ABS_DIFF,
-    ... )
+    >>> model_cfg = ModelConfig(variance="homogeneous", spatial_effect="abs_diff")
     >>> model = spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
     >>> idata = model.fit(X, y)
     """
@@ -340,34 +384,15 @@ class spGDMM(ModelBuilder):
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
             # Variance structure
-            if self._config.variance_type == VarianceType.HOMOGENEOUS:
-                sigma2 = pm.InverseGamma("sigma2", alpha=1, beta=1)
-            elif self._config.variance_type == VarianceType.COVARIATE_DEPENDENT:
-                if self.metadata.X_sigma is not None and self.metadata.X_sigma.shape[1] > 0:
-                    X_sigma = self.metadata.X_sigma
-                    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=X_sigma.shape[1])
-                    sigma2 = pm.math.exp(pm.math.dot(X_sigma, beta_sigma))
-                else:
-                    sigma2 = pm.InverseGamma("sigma2", alpha=1, beta=1)
-            elif self._config.variance_type == VarianceType.POLYNOMIAL:
-                beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=4)
-                sigma2 = pm.math.exp(
-                    beta_sigma[0] + beta_sigma[1] * mu +
-                    beta_sigma[2] * mu ** 2 +
-                    beta_sigma[3] * mu ** 3
-                )
-            elif self._config.variance_type == VarianceType.CUSTOM:
-                if self._config.custom_variance_fn is None:
-                    raise ValueError(
-                        "variance_type=CUSTOM requires custom_variance_fn to be set in ModelConfig."
-                    )
-                X_sigma = self.metadata.X_sigma
-                sigma2 = self._config.custom_variance_fn(mu, X_sigma)
-            else:
-                sigma2 = pm.InverseGamma("sigma2", alpha=1, beta=1)
+            variance_fn = (
+                self._config.variance
+                if callable(self._config.variance)
+                else _VARIANCE_STRATEGIES[self._config.variance]
+            )
+            sigma2 = variance_fn(mu, self.metadata.X_sigma)
 
             # Spatial random effects
-            if self._config.spatial_effect_type != SpatialEffectType.NONE:
+            if self._config.spatial_effect != "none":
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
                 location_values = self.training_metadata.location_values_train
                 length_scale = self.training_metadata.length_scale / 2
@@ -378,17 +403,12 @@ class spGDMM(ModelBuilder):
 
                 row_ind, col_ind = self._pair_indices
 
-                if self._config.spatial_effect_type == SpatialEffectType.ABS_DIFF:
-                    mu += pm.math.abs(psi[row_ind] - psi[col_ind])
-                elif self._config.spatial_effect_type == SpatialEffectType.SQUARED_DIFF:
-                    mu += pm.math.abs(psi[row_ind] - psi[col_ind]) ** 2
-                elif self._config.spatial_effect_type == SpatialEffectType.CUSTOM:
-                    if self._config.custom_spatial_effect_fn is None:
-                        raise ValueError(
-                            "spatial_effect_type=CUSTOM requires custom_spatial_effect_fn "
-                            "to be set in ModelConfig."
-                        )
-                    mu += self._config.custom_spatial_effect_fn(psi, row_ind, col_ind)
+                spatial_fn = (
+                    self._config.spatial_effect
+                    if callable(self._config.spatial_effect)
+                    else _SPATIAL_STRATEGIES[self._config.spatial_effect]
+                )
+                mu += spatial_fn(psi, row_ind, col_ind)
 
             # Observed data with censored likelihood
             pm.Censored(
