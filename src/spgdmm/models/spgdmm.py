@@ -484,21 +484,33 @@ class spGDMM(ModelBuilder):
         location_values = X_pred.iloc[:, :2].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, :2]
         X_values = X_pred.iloc[:, 3:].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, 3:]
 
+        # Validate predictor count against training
+        if self.n_features_in_ is not None and X_values.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X_pred has {X_values.shape[1]} environmental predictor(s) but the model "
+                f"was trained with {self.n_features_in_}."
+            )
+
         # predictor_mesh shape: (n_predictors, n_knot_points)
-        predictor_mesh = self.training_metadata["predictor_mesh"]
+        predictor_mesh = self.training_metadata.predictor_mesh
 
-        X_values_clipped = np.clip(
-            X_values,
-            predictor_mesh[:, 0],
-            predictor_mesh[:, -1],
-        )
+        # Compute clipping stats on non-NaN cells only to avoid spurious warnings
+        NaN_mask_raw = np.isnan(X_values)
+        valid_mask = ~NaN_mask_raw.any(axis=1)
+        X_valid = X_values[valid_mask]
+        X_valid_clipped = np.clip(X_valid, predictor_mesh[:, 0], predictor_mesh[:, -1])
+        n_clipped_env = int(np.sum(X_valid_clipped != X_valid))
+        if n_clipped_env > 0:
+            warnings.warn(f"{n_clipped_env} env values were clipped to predictor_mesh bounds.")
 
-        n_clipped = np.sum(X_values_clipped != X_values)
-        if n_clipped > 0:
-            warnings.warn(f"{n_clipped} env values were clipped to predictor_mesh bounds.")
+        # Rebuild full clipped array (NaN rows remain NaN)
+        X_values_clipped = np.where(NaN_mask_raw, np.nan, 0.0)  # placeholder
+        X_values_clipped[valid_mask] = X_valid_clipped
+        X_values_clipped[~valid_mask] = np.nan
 
         NaN_mask = np.isnan(X_values_clipped)
         X_clipped_nonan = X_values_clipped[~NaN_mask.any(axis=1)]
+        n_nan_rows = int((~valid_mask).sum())
 
         n_spline_bases = self._config.deg + self._config.knots
         I_spline_bases = np.column_stack([
@@ -511,6 +523,11 @@ class spGDMM(ModelBuilder):
         I_spline_bases_full[~NaN_mask.any(axis=1)] = I_spline_bases
 
         if biological_space:
+            self.prediction_metadata = {
+                "n_sites_pred": X_values.shape[0],
+                "n_clipped_env": n_clipped_env,
+                "n_nan_rows": n_nan_rows,
+            }
             return I_spline_bases_full
 
         I_spline_bases_diffs = np.array([
@@ -519,16 +536,24 @@ class spGDMM(ModelBuilder):
         ]).T
 
         pw_distance = self.pw_distance(location_values)
-        pw_distance_clipped = np.clip(
-            pw_distance,
-            self.training_metadata["dist_mesh"][0],
-            self.training_metadata["dist_mesh"][-1],
-        )
+        dist_mesh = self.training_metadata.dist_mesh
+        pw_distance_clipped = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
+        n_clipped_dist = int(np.sum(pw_distance_clipped != pw_distance))
+        if n_clipped_dist > 0:
+            warnings.warn(f"{n_clipped_dist} pairwise distances were clipped to dist_mesh bounds.")
 
         dist_predictors = np.column_stack([
-            Isplines(self._config.deg, self.training_metadata["dist_mesh"], pw_distance_clipped).I(j)
+            Isplines(self._config.deg, dist_mesh, pw_distance_clipped).I(j)
             for j in range(1, n_spline_bases + 1)
         ])
+
+        self.prediction_metadata = {
+            "n_sites_pred": X_values.shape[0],
+            "n_pairs_pred": len(pw_distance),
+            "n_clipped_env": n_clipped_env,
+            "n_clipped_dist": n_clipped_dist,
+            "n_nan_rows": n_nan_rows,
+        }
 
         return np.column_stack([I_spline_bases_diffs, dist_predictors])
 
