@@ -137,7 +137,7 @@ class TestSpGDMM:
     def test_model_from_config(self):
         """Test creating model from config."""
         config = ModelConfig(deg=4, knots=3)
-        model = spGDMM(config=config)
+        model = spGDMM(model_config=config)
         assert model._config.deg == 4
         assert model._config.knots == 3
 

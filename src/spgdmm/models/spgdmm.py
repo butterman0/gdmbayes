@@ -20,7 +20,7 @@ from scipy.spatial.distance import pdist
 from dms_variants.ispline import Isplines
 
 from ..core.base import ModelBuilder
-from .variants import ModelConfig, VarianceType, SpatialEffectType
+from .variants import ModelConfig, SamplerConfig, VarianceType, SpatialEffectType
 
 
 @dataclass
@@ -63,11 +63,10 @@ class spGDMM(ModelBuilder):
 
     Parameters
     ----------
-    config : ModelConfig, optional
-        Model configuration. Defaults to ``ModelConfig()`` (homogeneous variance,
-        no spatial effects).
-    sampler_config : dict, optional
-        MCMC sampler configuration.
+    model_config : dict or ModelConfig, optional
+        Model structure configuration. Defaults to ``ModelConfig()``.
+    sampler_config : dict or SamplerConfig, optional
+        MCMC sampler configuration. Defaults to PyMC/nutpie defaults.
 
     Examples
     --------
@@ -77,7 +76,7 @@ class spGDMM(ModelBuilder):
     ...     variance_type=VarianceType.HOMOGENEOUS,
     ...     spatial_effect_type=SpatialEffectType.ABS_DIFF,
     ... )
-    >>> model = spGDMM(config=config)
+    >>> model = spGDMM(model_config=config)
     >>> idata = model.fit(X, y)
     """
 
@@ -87,17 +86,17 @@ class spGDMM(ModelBuilder):
     def __init__(
         self,
         model_config: dict | ModelConfig | None = None,
-        sampler_config: dict | None = None,
-        config: ModelConfig | None = None,  # backward-compat alias
+        sampler_config: dict | SamplerConfig | None = None,
     ):
-        # model_config takes precedence; config is a legacy alias
-        effective = model_config if model_config is not None else config
-        if isinstance(effective, ModelConfig):
-            self._config = effective
-        elif isinstance(effective, dict):
-            self._config = ModelConfig.from_dict(effective)
+        if isinstance(model_config, ModelConfig):
+            self._config = model_config
+        elif isinstance(model_config, dict):
+            self._config = ModelConfig.from_dict(model_config)
         else:
             self._config = ModelConfig()
+
+        if isinstance(sampler_config, SamplerConfig):
+            sampler_config = sampler_config.to_dict()
 
         self._config_dict = self._config.to_dict()
         self.metadata: ModelMetadata | None = None
