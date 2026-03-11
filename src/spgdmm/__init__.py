@@ -14,7 +14,7 @@ __version__ = _version.__version__
 from .models.spgdmm import spGDMM
 
 # GDM-compatible interface
-from .models.gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract
+from .models.gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract, rgb_biological_space
 
 # Model configuration
 from .models.variants import (
@@ -44,6 +44,7 @@ from .plotting.plots import (
     plot_crps_comparison,
     summarise_sampling,
     plot_ppc,
+    rgb_from_biological_space,
 )
 
 # Core utilities
@@ -67,6 +68,7 @@ __all__ = [
     "gdm",
     "gdm_transform",
     "ispline_extract",
+    "rgb_biological_space",
     # Model configuration
     "ModelConfig",
     "VarianceType",
@@ -85,6 +87,7 @@ __all__ = [
     "plot_crps_comparison",
     "summarise_sampling",
     "plot_ppc",
+    "rgb_from_biological_space",
     # Core
     "ModelBuilder",
     # Utilities

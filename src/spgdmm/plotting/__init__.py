@@ -5,6 +5,7 @@ from .plots import (
     plot_crps_comparison,
     summarise_sampling,
     plot_ppc,
+    rgb_from_biological_space,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "plot_crps_comparison",
     "summarise_sampling",
     "plot_ppc",
+    "rgb_from_biological_space",
 ]

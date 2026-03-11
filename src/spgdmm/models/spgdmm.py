@@ -487,7 +487,7 @@ class spGDMM(ModelBuilder):
         return out_da
 
     def rgb_biological_space(
-        self, X_pred: pd.DataFrame, metric: str = "median", add_idata: bool = False
+        self, X_pred: pd.DataFrame, metric: str = "median"
     ) -> xr.DataArray:
         """
         Compute RGB biological-space map via PCA on I-spline transformed predictors.
@@ -501,56 +501,16 @@ class spGDMM(ModelBuilder):
             so that grid_cell can be unstacked into a spatial grid.
         metric : str, default="median"
             Posterior summary: "median" or "mean".
-        add_idata : bool, default=False
-            Reserved for future use (not used currently).
 
         Returns
         -------
         xr.DataArray
             Dims (time, xc, yc, rgb) with RGB values normalised to [0, 1].
         """
-        from sklearn.decomposition import PCA
+        from spgdmm.plotting.plots import rgb_from_biological_space
 
-        transformed_features = self._predict_biological_space(X_pred, metric=metric)
-
-        tf = transformed_features.unstack("grid_cell")
-        valid = ~tf.isnull().any(dim="feature")
-        X_all = tf.where(valid).stack(sample=("time", "yc", "xc")).dropna(dim="sample")
-        if X_all.sizes["sample"] == 0:
-            raise ValueError("No fully observed rows available for PCA.")
-        X_mat = X_all.transpose("sample", "feature").values
-
-        pca = PCA(n_components=3).fit(X_mat)
-        PC_ref = pca.transform(X_mat)
-        pc_min, pc_max = PC_ref.min(axis=0), PC_ref.max(axis=0)
-        pc_rng = np.where(pc_max > pc_min, pc_max - pc_min, 1.0)
-
-        X_full = tf.transpose("time", "yc", "xc", "feature").stack(sample=("time", "yc", "xc"))
-        X_valid = X_full.sel(sample=X_all["sample"]).transpose("sample", "feature").values
-        PC_curr = pca.transform(X_valid)
-
-        pcs_full = xr.DataArray(
-            np.full((tf.sizes["time"], tf.sizes["yc"], tf.sizes["xc"], 3), np.nan, dtype=float),
-            dims=("time", "yc", "xc", "pc"),
-            coords={"time": tf["time"], "yc": tf["yc"], "xc": tf["xc"], "pc": range(3)},
-        ).stack(sample=("time", "yc", "xc"))
-
-        pcs_full.loc[dict(sample=X_all["sample"])] = xr.DataArray(
-            PC_curr, dims=("sample", "pc"), coords={"sample": X_all["sample"], "pc": pcs_full["pc"]}
-        )
-        pcs_full = pcs_full.unstack("sample")
-
-        pcs_norm = (
-            pcs_full - xr.DataArray(pc_min, dims="pc", coords={"pc": pcs_full["pc"]})
-        ) / xr.DataArray(pc_rng, dims="pc", coords={"pc": pcs_full["pc"]})
-        pcs_norm = xr.where(
-            xr.DataArray(pc_max == pc_min, dims="pc", coords={"pc": pcs_full["pc"]}),
-            0.5,
-            pcs_norm,
-        )
-
-        rgb_da = pcs_norm.assign_coords(pc=["R", "G", "B"]).rename(pc="rgb")
-        return rgb_da.transpose("time", "xc", "yc", "rgb")
+        transformed = self._predict_biological_space(X_pred, metric=metric)
+        return rgb_from_biological_space(transformed)
 
     def _data_setter(
         self,
