@@ -13,6 +13,8 @@ from spgdmm import (
     VarianceType,
     SpatialEffectType,
     SamplerConfig,
+    PreprocessorConfig,
+    GDMPreprocessor,
 )
 
 
@@ -20,15 +22,17 @@ class TestModelConfig:
     """Test ModelConfig dataclass."""
 
     def test_default_config(self):
-        """Test default model configuration."""
+        """Test default model configuration — preprocessing fields are no longer present."""
         config = ModelConfig()
-        assert config.deg == 3
-        assert config.knots == 2
-        assert config.mesh_choice == "percentile"
-        assert config.distance_measure == "euclidean"
         assert config.alpha_importance is True
         assert config.variance_type == VarianceType.HOMOGENEOUS
         assert config.spatial_effect_type == SpatialEffectType.NONE
+        # Preprocessing fields must NOT exist on ModelConfig any more
+        assert not hasattr(config, "deg")
+        assert not hasattr(config, "knots")
+        assert not hasattr(config, "mesh_choice")
+        assert not hasattr(config, "distance_measure")
+        assert not hasattr(config, "extrapolation")
 
     def test_custom_variance_type(self):
         """Test CUSTOM variance type requires a callable."""
@@ -58,21 +62,72 @@ class TestModelConfig:
         assert config2.custom_spatial_effect_fn is my_fn
 
     def test_config_to_dict(self):
-        """Test converting config to dictionary."""
-        config = ModelConfig(deg=4, knots=3)
+        """Test converting config to dictionary — only Bayesian model fields."""
+        config = ModelConfig()
         d = config.to_dict()
-        assert d["deg"] == 4
-        assert d["knots"] == 3
         assert d["variance_type"] == "homogeneous"
+        assert d["spatial_effect_type"] == "none"
+        # Preprocessing keys must not be present
+        assert "deg" not in d
+        assert "knots" not in d
+        assert "mesh_choice" not in d
+        assert "distance_measure" not in d
 
     def test_config_from_dict(self):
-        """Test creating config from dictionary."""
-        d = {"deg": 5, "knots": 2, "mesh_choice": "even", "distance_measure": "geodesic"}
+        """Test creating config from dictionary — preprocessing keys emit DeprecationWarning."""
+        import warnings as _warnings
+        d = {"variance_type": "homogeneous", "spatial_effect_type": "none"}
         config = ModelConfig.from_dict(d)
-        assert config.deg == 5
-        assert config.knots == 2
-        assert config.mesh_choice == "even"
-        assert config.distance_measure == "geodesic"
+        assert config.variance_type == VarianceType.HOMOGENEOUS
+
+        # Legacy keys should trigger a DeprecationWarning but not crash
+        legacy_d = {"deg": 5, "knots": 2, "mesh_choice": "even", "distance_measure": "geodesic"}
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            config2 = ModelConfig.from_dict(legacy_d)
+        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+        # Result is still a valid ModelConfig
+        assert isinstance(config2, ModelConfig)
+
+
+class TestPreprocessorConfig:
+    """Test PreprocessorConfig dataclass."""
+
+    def test_default_config(self):
+        """Test default preprocessor configuration."""
+        cfg = PreprocessorConfig()
+        assert cfg.deg == 3
+        assert cfg.knots == 2
+        assert cfg.mesh_choice == "percentile"
+        assert cfg.distance_measure == "euclidean"
+        assert cfg.extrapolation == "clip"
+        assert cfg.custom_dist_mesh is None
+        assert cfg.custom_predictor_mesh is None
+
+    def test_to_dict(self):
+        """Test to_dict excludes numpy arrays."""
+        cfg = PreprocessorConfig(deg=4, knots=3, distance_measure="geodesic")
+        d = cfg.to_dict()
+        assert d["deg"] == 4
+        assert d["knots"] == 3
+        assert d["distance_measure"] == "geodesic"
+        assert "custom_dist_mesh" not in d
+        assert "custom_predictor_mesh" not in d
+
+    def test_from_dict(self):
+        """Test from_dict round-trip."""
+        d = {"deg": 2, "knots": 1, "mesh_choice": "even", "extrapolation": "nan"}
+        cfg = PreprocessorConfig.from_dict(d)
+        assert cfg.deg == 2
+        assert cfg.knots == 1
+        assert cfg.mesh_choice == "even"
+        assert cfg.extrapolation == "nan"
+
+    def test_from_dict_defaults(self):
+        """Test from_dict with empty dict gives defaults."""
+        cfg = PreprocessorConfig.from_dict({})
+        assert cfg.deg == 3
+        assert cfg.extrapolation == "clip"
 
 
 class TestSamplerConfig:
@@ -134,15 +189,22 @@ class TestSpGDMM:
         model = spGDMM()
         assert model._config.variance_type == VarianceType.HOMOGENEOUS
         assert model._config.spatial_effect_type == SpatialEffectType.NONE
-        assert model._config.deg == 3
-        assert model._config.knots == 2
+        # Preprocessing settings now live on the preprocessor
+        assert model.preprocessor._get_config().deg == 3
+        assert model.preprocessor._get_config().knots == 2
 
     def test_model_from_config(self):
-        """Test creating model from config."""
-        config = ModelConfig(deg=4, knots=3)
-        model = spGDMM(model_config=config)
-        assert model._config.deg == 4
-        assert model._config.knots == 3
+        """Test creating model from preprocessor config."""
+        prep_config = PreprocessorConfig(deg=4, knots=3)
+        model = spGDMM(preprocessor=prep_config)
+        assert model.preprocessor._get_config().deg == 4
+        assert model.preprocessor._get_config().knots == 3
+
+    def test_model_from_model_config(self):
+        """Test creating model from ModelConfig."""
+        model_config = ModelConfig(variance_type=VarianceType.POLYNOMIAL)
+        model = spGDMM(model_config=model_config)
+        assert model._config.variance_type == VarianceType.POLYNOMIAL
 
     def test_output_var(self, sample_data):
         """Test output_var property."""
@@ -152,11 +214,14 @@ class TestSpGDMM:
         assert model.output_var == "log_y"
 
     def test_get_default_model_config(self):
-        """Test get_default_model_config method."""
+        """Test get_default_model_config method returns Bayesian model fields."""
         model = spGDMM()
         config = model.get_default_model_config()
         assert isinstance(config, dict)
-        assert "deg" in config
+        assert "variance_type" in config
+        assert "spatial_effect_type" in config
+        # Preprocessing fields are not in ModelConfig
+        assert "deg" not in config
 
     def test_get_default_sampler_config(self):
         """Test get_default_sampler_config method."""
@@ -167,12 +232,14 @@ class TestSpGDMM:
         assert config["chains"] == 4
 
     def test_serializable_config(self):
-        """Test _serializable_model_config property."""
+        """Test _serializable_model_config property returns Bayesian model fields."""
         model = spGDMM()
         config = model._serializable_model_config
         assert isinstance(config, dict)
-        assert "deg" in config
-        assert "knots" in config
+        assert "variance_type" in config
+        # Preprocessing fields not in model config
+        assert "deg" not in config
+        assert "knots" not in config
 
     def test_pw_distance(self):
         """Test pairwise distance calculation."""
@@ -264,21 +331,22 @@ class TestExtrapolation:
         return X_pred
 
     def test_default_extrapolation_is_clip(self):
-        config = ModelConfig()
-        assert config.extrapolation == "clip"
+        """Extrapolation default lives on PreprocessorConfig."""
+        cfg = PreprocessorConfig()
+        assert cfg.extrapolation == "clip"
 
     def test_extrapolation_in_to_dict(self):
-        config = ModelConfig(extrapolation="error")
-        d = config.to_dict()
+        cfg = PreprocessorConfig(extrapolation="error")
+        d = cfg.to_dict()
         assert d["extrapolation"] == "error"
 
     def test_extrapolation_in_from_dict(self):
-        config = ModelConfig.from_dict({"extrapolation": "nan"})
-        assert config.extrapolation == "nan"
+        cfg = PreprocessorConfig.from_dict({"extrapolation": "nan"})
+        assert cfg.extrapolation == "nan"
 
     def test_from_dict_missing_extrapolation_defaults_to_clip(self):
-        config = ModelConfig.from_dict({})
-        assert config.extrapolation == "clip"
+        cfg = PreprocessorConfig.from_dict({})
+        assert cfg.extrapolation == "clip"
 
     def test_clip_mode_warns(self, fitted_model):
         model, X = fitted_model
@@ -297,20 +365,20 @@ class TestExtrapolation:
 
     def test_error_mode_raises(self, fitted_model):
         model, X = fitted_model
-        model._config.extrapolation = "error"
+        model.preprocessor.config = PreprocessorConfig(extrapolation="error")
         X_oob = self._make_oob_X(X)
         with pytest.raises(ValueError, match="outside predictor_mesh bounds"):
             model._transform_for_prediction(X_oob)
 
     def test_error_mode_no_raise_in_range(self, fitted_model):
         model, X = fitted_model
-        model._config.extrapolation = "error"
+        model.preprocessor.config = PreprocessorConfig(extrapolation="error")
         # Should not raise when all values are within training range
         model._transform_for_prediction(X)
 
     def test_nan_mode_produces_nans(self, fitted_model):
         model, X = fitted_model
-        model._config.extrapolation = "nan"
+        model.preprocessor.config = PreprocessorConfig(extrapolation="nan")
         X_oob = self._make_oob_X(X)
         result = model._transform_for_prediction(X_oob)
         # Some rows must contain NaN (pairs involving the out-of-range site)
@@ -318,7 +386,7 @@ class TestExtrapolation:
 
     def test_nan_mode_inrange_pairs_are_finite(self, fitted_model):
         model, X = fitted_model
-        model._config.extrapolation = "nan"
+        model.preprocessor.config = PreprocessorConfig(extrapolation="nan")
         # All in-range — no NaN expected
         result = model._transform_for_prediction(X)
         assert not np.isnan(result).any()

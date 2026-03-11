@@ -1,6 +1,7 @@
 """Model variant definitions for spGDMM."""
 
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Literal, Optional
 
@@ -56,16 +57,27 @@ class SamplerConfig:
         return cls(**valid_fields)
 
 
+# Keys that used to live in ModelConfig but now belong in PreprocessorConfig.
+_PREPROCESSING_KEYS = frozenset({
+    "deg", "knots", "mesh_choice", "distance_measure",
+    "custom_dist_mesh", "custom_predictor_mesh", "extrapolation",
+    "diss_metric", "time_predictor", "connected_pairs_only",
+    "updated_predictor_mesh", "time_varying", "connectivity_percentile",
+    "length_scale",
+})
+
+
 @dataclass
 class ModelConfig:
-    """Configuration for spGDMM model.
+    """Configuration for spGDMM model (Bayesian estimator settings only).
 
-    This dataclass encapsulates all configuration parameters for the spGDMM model,
-    including I-spline settings, distance measures, predictor settings, variance
-    structure, and spatial effects.
+    This dataclass encapsulates the model-structure parameters for spGDMM:
+    variance structure and spatial random effects.  Data-preprocessing settings
+    (spline degree, knots, distance measure, etc.) now live in
+    :class:`~spgdmm.core.config.PreprocessorConfig`.
 
-    For custom variance or spatial effects, set the corresponding type to CUSTOM and
-    provide a callable:
+    For custom variance or spatial effects, set the corresponding type to CUSTOM
+    and provide a callable:
 
     - ``custom_variance_fn(mu, X_sigma) -> sigma2``: receives the linear predictor
       ``mu`` (a PyTensor variable) and ``X_sigma`` (np.ndarray or None), and must
@@ -96,30 +108,10 @@ class ModelConfig:
     ...     spatial_effect_type=SpatialEffectType.CUSTOM,
     ...     custom_spatial_effect_fn=my_spatial,
     ... )
-
-    Extrapolation modes:
-
-    ``extrapolation`` controls what happens when prediction data fall outside the
-    bounds of the training mesh:
-
-    * ``"clip"`` (default) — clamp to boundary and warn (constant extrapolation at
-      the I-spline saturation value).
-    * ``"error"`` — raise ``ValueError`` on any out-of-range value.
-    * ``"nan"`` — propagate ``NaN`` for affected sites/pairs rather than clipping.
     """
 
-    # I-spline settings
-    deg: int = 3
-    knots: int = 2
-    mesh_choice: Literal["percentile", "even", "custom"] = "percentile"
-
-    # Distance settings
-    distance_measure: str = "euclidean"
-    custom_dist_mesh: Optional[np.ndarray] = None
-
-    # Predictor settings
+    # Predictor importance weighting
     alpha_importance: bool = True
-    custom_predictor_mesh: Optional[np.ndarray] = None
 
     # Variance structure
     variance_type: VarianceType = VarianceType.HOMOGENEOUS
@@ -128,18 +120,6 @@ class ModelConfig:
     # Spatial effects
     spatial_effect_type: SpatialEffectType = SpatialEffectType.NONE
     custom_spatial_effect_fn: Optional[Callable] = None
-    length_scale: Optional[float] = None
-
-    # Additional settings
-    diss_metric: str = "braycurtis"
-    time_predictor: Optional[str] = None
-    connected_pairs_only: bool = False
-    updated_predictor_mesh: bool = True
-    time_varying: bool = True
-    connectivity_percentile: Optional[int] = None
-
-    # Prediction settings
-    extrapolation: Literal["clip", "error", "nan"] = "clip"
 
     def to_dict(self) -> dict:
         """Convert to dictionary suitable for serialization.
@@ -148,28 +128,37 @@ class ModelConfig:
         serialized and will be ``None`` when reloaded from a saved model.
         """
         return {
-            "deg": self.deg,
-            "knots": self.knots,
-            "mesh_choice": self.mesh_choice,
-            "distance_measure": self.distance_measure,
-            "custom_dist_mesh": self.custom_dist_mesh.tolist() if self.custom_dist_mesh is not None else None,
             "alpha_importance": self.alpha_importance,
-            "custom_predictor_mesh": self.custom_predictor_mesh.tolist() if self.custom_predictor_mesh is not None else None,
-            "variance_type": self.variance_type.value if isinstance(self.variance_type, VarianceType) else self.variance_type,
-            "spatial_effect_type": self.spatial_effect_type.value if isinstance(self.spatial_effect_type, SpatialEffectType) else self.spatial_effect_type,
-            "length_scale": self.length_scale,
-            "diss_metric": self.diss_metric,
-            "time_predictor": self.time_predictor,
-            "connected_pairs_only": self.connected_pairs_only,
-            "updated_predictor_mesh": self.updated_predictor_mesh,
-            "time_varying": self.time_varying,
-            "connectivity_percentile": self.connectivity_percentile,
-            "extrapolation": self.extrapolation,
+            "variance_type": (
+                self.variance_type.value
+                if isinstance(self.variance_type, VarianceType)
+                else self.variance_type
+            ),
+            "spatial_effect_type": (
+                self.spatial_effect_type.value
+                if isinstance(self.spatial_effect_type, SpatialEffectType)
+                else self.spatial_effect_type
+            ),
         }
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> "ModelConfig":
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Deprecated preprocessing keys (``deg``, ``knots``, ``mesh_choice``, etc.)
+        are silently ignored with a deprecation warning so that configs serialized
+        with older versions of the library can still be loaded.
+        """
+        removed = _PREPROCESSING_KEYS.intersection(config_dict)
+        if removed:
+            warnings.warn(
+                f"ModelConfig.from_dict() received deprecated preprocessing key(s) "
+                f"{sorted(removed)!r}. These settings now belong in PreprocessorConfig "
+                f"and are ignored here.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         variance_type = config_dict.get("variance_type", VarianceType.HOMOGENEOUS)
         if isinstance(variance_type, str):
             variance_type = VarianceType(variance_type)
@@ -179,23 +168,9 @@ class ModelConfig:
             spatial_effect_type = SpatialEffectType(spatial_effect_type)
 
         return cls(
-            deg=config_dict.get("deg", 3),
-            knots=config_dict.get("knots", 2),
-            mesh_choice=config_dict.get("mesh_choice", "percentile"),
-            distance_measure=config_dict.get("distance_measure", "euclidean"),
-            custom_dist_mesh=np.array(config_dict["custom_dist_mesh"]) if config_dict.get("custom_dist_mesh") is not None else None,
             alpha_importance=config_dict.get("alpha_importance", True),
-            custom_predictor_mesh=np.array(config_dict["custom_predictor_mesh"]) if config_dict.get("custom_predictor_mesh") is not None else None,
             variance_type=variance_type,
             spatial_effect_type=spatial_effect_type,
-            length_scale=config_dict.get("length_scale"),
-            diss_metric=config_dict.get("diss_metric", "braycurtis"),
-            time_predictor=config_dict.get("time_predictor"),
-            connected_pairs_only=config_dict.get("connected_pairs_only", False),
-            updated_predictor_mesh=config_dict.get("updated_predictor_mesh", True),
-            time_varying=config_dict.get("time_varying", True),
-            connectivity_percentile=config_dict.get("connectivity_percentile"),
-            extrapolation=config_dict.get("extrapolation", "clip"),
         )
 
 

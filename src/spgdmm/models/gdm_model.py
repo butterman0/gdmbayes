@@ -19,6 +19,8 @@ import arviz as az
 
 from .spgdmm import spGDMM
 from .variants import ModelConfig, SamplerConfig, VarianceType
+from ..core.config import PreprocessorConfig
+from ..preprocessing.preprocessor import GDMPreprocessor
 
 # Type alias for InferenceData
 InferenceData = az.InferenceData
@@ -192,23 +194,38 @@ class GDMModel:
         if model_config is not None:
             self.model_config = model_config
         else:
-            # Create config from splines parameter
-            if isinstance(splines, int):
-                knots_count = splines - 3 if splines >= 3 else 0
-            elif isinstance(splines, list):
-                knots_count = max([s - 3 if s >= 3 else 0 for s in splines]) if splines else 2
-            else:
-                knots_count = 2
+            self.model_config = ModelConfig()
 
-            self.model_config = ModelConfig(
-                deg=3,
-                knots=knots_count,
-                **kwargs
-            )
+        # Build preprocessor config from splines/knots kwargs
+        if isinstance(splines, int):
+            knots_count = splines - 3 if splines >= 3 else 0
+        elif isinstance(splines, list):
+            knots_count = max([s - 3 if s >= 3 else 0 for s in splines]) if splines else 2
+        else:
+            knots_count = 2
+
+        # Allow passing preprocessor kwargs via **kwargs (distance_measure, mesh_choice, etc.)
+        prep_kwarg_keys = {
+            "deg", "mesh_choice", "distance_measure",
+            "custom_dist_mesh", "custom_predictor_mesh", "extrapolation",
+        }
+        prep_kwargs = {k: v for k, v in kwargs.items() if k in prep_kwarg_keys}
+        remaining_kwargs = {k: v for k, v in kwargs.items() if k not in prep_kwarg_keys}
+
+        prep_config = PreprocessorConfig(
+            deg=prep_kwargs.pop("deg", 3),
+            knots=knots_count,
+            **prep_kwargs,
+        )
+        self._preprocessor = GDMPreprocessor(config=prep_config)
 
         self.sampler_config = sampler_config if sampler_config else SamplerConfig()
 
-        self._spgdmm = spGDMM(model_config=self.model_config, sampler_config=self.sampler_config.to_dict())
+        self._spgdmm = spGDMM(
+            preprocessor=self._preprocessor,
+            model_config=self.model_config,
+            sampler_config=self.sampler_config.to_dict(),
+        )
         self._fit_data: pd.DataFrame | None = None
         self._fit_result: GDMResult | None = None
         self._site_pair_columns: dict | None = None
