@@ -7,6 +7,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist
+from sklearn.base import clone
+from sklearn.utils.validation import check_is_fitted
+from sklearn.exceptions import NotFittedError
 from gdmbayes import (
     spGDMM,
     ModelConfig,
@@ -246,6 +249,38 @@ class TestSpGDMM:
         assert len(dists) == 3  # n*(n-1)/2 for n=3
         assert np.all(dists >= 0)
 
+    def test_n_features_in_not_set_before_preprocess(self):
+        """n_features_in_ should not be set before _generate_and_preprocess_model_data."""
+        model = spGDMM()
+        assert not hasattr(model, "n_features_in_")
+
+    def test_n_features_in_set_after_preprocess(self, sample_data):
+        """n_features_in_ should equal the number of env predictors after preprocessing."""
+        X, y = sample_data
+        model = spGDMM()
+        model._generate_and_preprocess_model_data(X, y)
+        # sample_data has 2 env predictors: temp, depth
+        assert model.n_features_in_ == 2
+
+    def test_set_idata_attrs_sets_required_attrs(self, sample_data):
+        """_set_idata_attrs must stamp id, model_type, version, model_config, sampler_config."""
+        import json
+        X, y = sample_data
+        model = spGDMM()
+        model._generate_and_preprocess_model_data(X, y)
+        # Build a minimal stub idata with no posterior so we can call _set_idata_attrs
+        stub = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
+        model.idata = stub  # needed so _save_input_params doesn't raise
+        result = model._set_idata_attrs(stub)
+        assert "id" in result.attrs
+        assert "model_type" in result.attrs
+        assert "version" in result.attrs
+        assert "model_config" in result.attrs
+        assert "sampler_config" in result.attrs
+        # Values should be parseable JSON
+        json.loads(result.attrs["model_config"])
+        json.loads(result.attrs["sampler_config"])
+
 
 class TestDataPreprocessing:
     """Test data preprocessing methods."""
@@ -387,3 +422,173 @@ class TestExtrapolation:
         # All in-range — no NaN expected
         result = model._transform_for_prediction(X)
         assert not np.isnan(result).any()
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by sklearn interface and save/load tests
+# ---------------------------------------------------------------------------
+
+def _make_sample_data(n_sites=20, seed=42):
+    np.random.seed(seed)
+    X = pd.DataFrame({
+        "xc": np.random.uniform(0, 100, n_sites),
+        "yc": np.random.uniform(0, 100, n_sites),
+        "time_idx": np.zeros(n_sites, dtype=int),
+        "temp": np.random.uniform(5, 20, n_sites),
+        "depth": np.random.uniform(0, 200, n_sites),
+    })
+    biomass = np.random.exponential(1, (n_sites, 10))
+    y = np.clip(pdist(biomass, "braycurtis"), 1e-8, None)
+    return X, y
+
+
+class TestSpGDMMSklearnInterface:
+    """Sklearn-style interface tests — no MCMC required."""
+
+    @pytest.fixture
+    def model(self):
+        prep_cfg = PreprocessorConfig(deg=3, knots=2)
+        model_cfg = ModelConfig(variance="homogeneous", spatial_effect="none")
+        return spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
+
+    @pytest.fixture
+    def preprocessed_model(self):
+        X, y = _make_sample_data()
+        prep_cfg = PreprocessorConfig(deg=3, knots=2)
+        model_cfg = ModelConfig(variance="homogeneous", spatial_effect="none")
+        m = spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
+        m._generate_and_preprocess_model_data(X, y)
+        return m
+
+    def test_get_params_returns_all_init_params(self, model):
+        params = model.get_params()
+        assert "preprocessor" in params
+        assert "model_config" in params
+        assert "sampler_config" in params
+
+    def test_set_params_updates_model_config(self, model):
+        new_cfg = {"variance": "polynomial", "spatial_effect": "none", "alpha_importance": True}
+        result = model.set_params(model_config=new_cfg)
+        assert result is model
+        # The raw dict stored as model_config is updated
+        assert model.model_config["variance"] == "polynomial"
+
+    def test_clone_preserves_preprocessor_config(self, model):
+        cloned = clone(model)
+        assert cloned.preprocessor._get_config().deg == model.preprocessor._get_config().deg
+
+    def test_clone_preserves_model_config(self, model):
+        cloned = clone(model)
+        assert cloned._config.variance == model._config.variance
+
+    def test_clone_produces_unfitted_model(self, preprocessed_model):
+        cloned = clone(preprocessed_model)
+        assert cloned.idata is None
+        assert not hasattr(cloned, "n_features_in_")
+
+    def test_not_fitted_raises_check_is_fitted(self, model):
+        with pytest.raises(NotFittedError):
+            check_is_fitted(model)
+
+    def test_fitted_after_preprocess(self, preprocessed_model):
+        """check_is_fitted should NOT raise after we inject a stub posterior."""
+        preprocessed_model.idata = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
+        # Should not raise
+        check_is_fitted(preprocessed_model)
+
+    def test_id_is_deterministic(self, model):
+        assert model.id == model.id
+        # Two models with identical config share the same id
+        model2 = spGDMM(
+            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+        )
+        assert model.id == model2.id
+
+    def test_legacy_model_config_keys_warn(self):
+        with pytest.warns(DeprecationWarning):
+            spGDMM(model_config={"deg": 5})
+
+    def test_preprocessor_skips_refit(self):
+        X, y = _make_sample_data()
+        m = spGDMM()
+        m._generate_and_preprocess_model_data(X, y)
+        mesh_before = m.preprocessor.predictor_mesh_.copy()
+        m._generate_and_preprocess_model_data(X, y)
+        np.testing.assert_array_equal(m.preprocessor.predictor_mesh_, mesh_before)
+
+
+class TestSpGDMMSaveLoad:
+    """Save/load round-trip tests — require MCMC (minimal sampling)."""
+
+    _FAST_SAMPLER = SamplerConfig(
+        draws=2, tune=2, chains=1, nuts_sampler="pymc", progressbar=False
+    )
+
+    @pytest.fixture(scope="module")
+    def fitted_artifacts(self, tmp_path_factory):
+        """Fit once per module; return (model, save_path, X, y)."""
+        X, y = _make_sample_data(n_sites=15, seed=7)
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+            sampler_config=TestSpGDMMSaveLoad._FAST_SAMPLER,
+        )
+        model.fit(X, y)
+        save_path = tmp_path_factory.mktemp("saveload") / "model.nc"
+        model.save(str(save_path))
+        return model, save_path, X, y
+
+    def test_save_raises_before_fit(self, tmp_path):
+        model = spGDMM(sampler_config=self._FAST_SAMPLER)
+        with pytest.raises(RuntimeError):
+            model.save(str(tmp_path / "model.nc"))
+
+    def test_save_creates_file(self, fitted_artifacts):
+        _, save_path, _, _ = fitted_artifacts
+        assert save_path.exists()
+
+    def test_load_returns_correct_type(self, fitted_artifacts):
+        _, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        assert isinstance(loaded, spGDMM)
+
+    def test_load_preserves_model_config(self, fitted_artifacts):
+        original, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        assert loaded._config.variance == original._config.variance
+
+    def test_load_preserves_sampler_config(self, fitted_artifacts):
+        original, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        assert loaded.sampler_config["draws"] == original.sampler_config["draws"]
+
+    def test_load_preprocessor_is_fitted(self, fitted_artifacts):
+        _, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        assert hasattr(loaded.preprocessor, "n_predictors_")
+
+    def test_load_preprocessor_mesh_matches(self, fitted_artifacts):
+        original, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        np.testing.assert_array_equal(
+            loaded.preprocessor.predictor_mesh_,
+            original.preprocessor.predictor_mesh_,
+        )
+
+    def test_load_id_matches(self, fitted_artifacts):
+        original, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        assert loaded.id == original.id
+
+    def test_load_transform_consistency(self, fitted_artifacts):
+        original, save_path, X, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        orig_result = original._transform_for_prediction(X)
+        load_result = loaded._transform_for_prediction(X)
+        np.testing.assert_array_almost_equal(orig_result, load_result)
+
+    def test_load_idata_has_posterior(self, fitted_artifacts):
+        _, save_path, _, _ = fitted_artifacts
+        loaded = spGDMM.load(str(save_path))
+        assert "posterior" in loaded.idata
