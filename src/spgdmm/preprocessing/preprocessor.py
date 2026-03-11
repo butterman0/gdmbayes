@@ -133,7 +133,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             n_predictors = 0
 
         # Compute pairwise distance
-        pw_distance = self._pw_distance(location_values)
+        pw_distance = self.pw_distance(location_values)
 
         # Build distance mesh
         if cfg.custom_dist_mesh is not None:
@@ -281,7 +281,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             n_sites = X_values.shape[0]
             I_spline_bases_diffs = np.empty((n_sites * (n_sites - 1) // 2, 0))
 
-        pw_distance = self._pw_distance(location_values)
+        pw_distance = self.pw_distance(location_values)
         dist_mesh = self.dist_mesh_
         mode = cfg.extrapolation
         out_of_range_dist = (pw_distance < dist_mesh[0]) | (pw_distance > dist_mesh[-1])
@@ -324,7 +324,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
 
         return np.column_stack([I_spline_bases_diffs, dist_predictors])
 
-    def _pw_distance(self, location_values: np.ndarray) -> np.ndarray:
+    def pw_distance(self, location_values: np.ndarray) -> np.ndarray:
         """Compute pairwise geographic distance.
 
         Parameters

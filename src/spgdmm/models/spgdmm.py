@@ -217,7 +217,7 @@ class spGDMM(ModelBuilder):
             I_spline_bases_diffs = np.empty((n_sites * (n_sites - 1) // 2, 0))
 
         # Compute distance splines using pw_distance on training locations
-        pw_distance = prep._pw_distance(prep.location_values_train_)
+        pw_distance = prep.pw_distance(prep.location_values_train_)
         dist_mesh = prep.dist_mesh_
         pw_dist_clipped = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
         from dms_variants.ispline import Isplines
@@ -550,30 +550,6 @@ class spGDMM(ModelBuilder):
     def _serializable_model_config(self) -> dict:
         """Return serializable model config."""
         return self._config.to_dict()
-
-    def pw_distance(
-        self, location_values: np.ndarray, distance_measure: str | None = None
-    ) -> np.ndarray:
-        """Compute pairwise geographical distance.
-
-        Pass-through to ``self.preprocessor._pw_distance()`` for backward
-        compatibility. The ``distance_measure`` argument is accepted but the
-        preprocessor's configured measure is used; pass a different
-        ``distance_measure`` to override for a one-off call.
-        """
-        if distance_measure is not None:
-            # One-off override: build a temporary config
-            cfg = self.preprocessor._get_config()
-            tmp_cfg = PreprocessorConfig(
-                deg=cfg.deg,
-                knots=cfg.knots,
-                mesh_choice=cfg.mesh_choice,
-                distance_measure=distance_measure,
-                extrapolation=cfg.extrapolation,
-            )
-            tmp = GDMPreprocessor(config=tmp_cfg)
-            return tmp._pw_distance(location_values)
-        return self.preprocessor._pw_distance(location_values)
 
 
 __all__ = ["spGDMM"]

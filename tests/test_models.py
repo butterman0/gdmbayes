@@ -245,7 +245,7 @@ class TestSpGDMM:
         """Test pairwise distance calculation."""
         locations = np.array([[0, 0], [1, 0], [0, 1]])
         model = spGDMM()
-        dists = model.pw_distance(locations, distance_measure="euclidean")
+        dists = model.preprocessor.pw_distance(locations)
         assert len(dists) == 3  # n*(n-1)/2 for n=3
         assert np.all(dists >= 0)
 

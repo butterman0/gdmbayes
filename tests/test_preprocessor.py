@@ -172,7 +172,7 @@ class TestGDMPreprocessor:
     def test_pw_distance_euclidean(self, sample_X):
         prep = GDMPreprocessor(config=PreprocessorConfig(distance_measure="euclidean"))
         locs = sample_X.iloc[:, :2].values
-        dists = prep._pw_distance(locs)
+        dists = prep.pw_distance(locs)
         assert dists.shape == (sample_X.shape[0] * (sample_X.shape[0] - 1) // 2,)
         assert np.all(dists >= 0)
 
