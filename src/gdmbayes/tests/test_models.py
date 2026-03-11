@@ -12,6 +12,7 @@ from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
 from gdmbayes import (
     spGDMM,
+    GDM,
     ModelConfig,
     SamplerConfig,
     PreprocessorConfig,
@@ -592,3 +593,133 @@ class TestSpGDMMSaveLoad:
         _, save_path, _, _ = fitted_artifacts
         loaded = spGDMM.load(str(save_path))
         assert "posterior" in loaded.idata
+
+
+class TestGDM:
+    """Tests for the frequentist GDM class."""
+
+    @pytest.fixture
+    def sample_data(self):
+        np.random.seed(42)
+        n = 20
+        X = pd.DataFrame({
+            "xc": np.random.uniform(0, 100, n),
+            "yc": np.random.uniform(0, 100, n),
+            "time_idx": np.zeros(n),
+            "temp": np.random.uniform(5, 20, n),
+            "depth": np.random.uniform(0, 200, n),
+        })
+        biomass = np.random.exponential(1, (n, 10))
+        y = pdist(biomass, "braycurtis").clip(1e-8, 1 - 1e-8)
+        return X, y
+
+    def test_fit_returns_self(self, sample_data):
+        X, y = sample_data
+        m = GDM()
+        result = m.fit(X, y)
+        assert result is m
+
+    def test_fit_sets_coef(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        assert hasattr(m, "coef_")
+        assert m.coef_.shape[0] > 0
+        assert np.all(m.coef_ >= 0)  # NNLS guarantees non-negative
+
+    def test_fit_sets_predictor_importance(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        assert hasattr(m, "predictor_importance_")
+        assert "temp" in m.predictor_importance_
+        assert "depth" in m.predictor_importance_
+        assert all(v >= 0 for v in m.predictor_importance_.values())
+
+    def test_fit_sets_explained(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        assert hasattr(m, "explained_")
+        assert np.isfinite(m.explained_)
+        assert m.explained_ <= 1.0
+
+    def test_fit_sets_knots(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        assert hasattr(m, "knots_")
+        assert "temp" in m.knots_
+        assert "depth" in m.knots_
+
+    def test_predict_shape(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        preds = m.predict(X)
+        n = len(X)
+        assert preds.shape == (n * (n - 1) // 2,)
+
+    def test_predict_in_range(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        preds = m.predict(X)
+        assert np.all(preds >= 0)
+        assert np.all(preds < 1)
+
+    def test_geo_false_excludes_distance(self, sample_data):
+        X, y = sample_data
+        m = GDM(geo=False).fit(X, y)
+        assert "geo" not in m.predictor_importance_
+
+    def test_geo_true_includes_distance(self, sample_data):
+        X, y = sample_data
+        m = GDM(geo=True).fit(X, y)
+        assert "geo" in m.predictor_importance_
+        assert "geo" in m.knots_
+
+    def test_n_features_in(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        assert m.n_features_in_ == X.shape[1]
+
+    def test_feature_names_in(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        np.testing.assert_array_equal(m.feature_names_in_, np.array(X.columns))
+
+    def test_sklearn_clone(self, sample_data):
+        from sklearn.base import clone
+        m = GDM(splines=4, geo=True)
+        cloned = clone(m)
+        assert cloned.splines == 4
+        assert cloned.geo is True
+        assert not hasattr(cloned, "coef_")
+
+    def test_sklearn_get_params(self):
+        m = GDM(splines=4, knots=3, geo=True)
+        params = m.get_params()
+        assert params["splines"] == 4
+        assert params["knots"] == 3
+        assert params["geo"] is True
+
+    def test_gdm_transform_shape(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        T = m.gdm_transform(X)
+        n_sites = len(X)
+        n_env = m.preprocessor_.n_predictors_ * m.preprocessor_.n_spline_bases_
+        assert T.shape == (n_sites, n_env)
+
+    def test_score_in_range(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        s = m.score(X, y)
+        assert s <= 1.0
+
+    def test_preprocessor_config_override(self, sample_data):
+        X, y = sample_data
+        cfg = PreprocessorConfig(deg=2, knots=3)
+        m = GDM(preprocessor_config=cfg).fit(X, y)
+        assert m.preprocessor_.n_spline_bases_ == 2 + 3
+
+    def test_deviances_nonnegative(self, sample_data):
+        X, y = sample_data
+        m = GDM().fit(X, y)
+        assert m.null_deviance_ >= 0
+        assert m.model_deviance_ >= 0

@@ -1,19 +1,21 @@
 """
-spGDMM: Spatial Generalized Dissimilarity Mixed Model.
+gdmbayes: Bayesian and Frequentist Generalised Dissimilarity Modelling.
 
-A Python package for modeling ecological dissimilarities using spatial
-and environmental predictors with Bayesian inference, compatible with
-the R GDM package input/output format.
+A Python package for modelling ecological dissimilarities using spatial
+and environmental predictors with I-spline basis functions.
 """
 
 from . import _version  # noqa: F401
 
 __version__ = _version.__version__
 
-# Core model
+# Core Bayesian model
 from .models._spgdmm import spGDMM
 
-# GDM-compatible interface
+# Frequentist GDM
+from .models._gdm import GDM
+
+# Bayesian GDM wrapper
 from .models._gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract, rgb_biological_space
 
 # Model configuration
@@ -61,15 +63,14 @@ from .plotting._plots import (
 from .preprocessing._config import PreprocessorConfig
 from .preprocessing._preprocessor import GDMPreprocessor
 
-# Utilities
-from .utils._format_site_pair import format_site_pair, BioFormat
-
 __all__ = [
     # Version
     "__version__",
-    # Core model
+    # Core Bayesian model
     "spGDMM",
-    # GDM-compatible interface
+    # Frequentist GDM
+    "GDM",
+    # Bayesian GDM wrapper
     "GDMModel",
     "GDMResult",
     "gdm",
@@ -102,7 +103,4 @@ __all__ = [
     "summarise_sampling",
     "plot_ppc",
     "rgb_from_biological_space",
-    # Utilities
-    "format_site_pair",
-    "BioFormat",
 ]
