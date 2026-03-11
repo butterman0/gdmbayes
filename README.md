@@ -160,55 +160,54 @@ model = spGDMM.from_variant(ModelVariant.MODEL4)
 Or build custom configurations:
 
 ```python
-from spgdmm import spGDMM, ModelConfig, VarianceType, SpatialEffectType
+from gdmbayes import spGDMM, ModelConfig, PreprocessorConfig
 
-config = ModelConfig(
-    deg=4,
-    knots=3,
-    variance_type=VarianceType.HOMOGENEOUS,
-    spatial_effect_type=SpatialEffectType.ABS_DIFF,
-    alpha_importance=True,
+model = spGDMM(
+    model_config=ModelConfig(variance="polynomial", spatial_effect="abs_diff"),
+    preprocessor_config=PreprocessorConfig(deg=4, knots=3),
 )
-model = spGDMM(config=config)
 ```
 
 ## Configuration
 
 ### Model Configuration
 
+`ModelConfig` controls the Bayesian model structure only (variance and spatial effect). Preprocessing settings live in `PreprocessorConfig`.
+
 ```python
-from spgdmm import ModelConfig
+from gdmbayes import ModelConfig
 
 config = ModelConfig(
-    # I-spline settings
-    deg=3,                           # Degree of I-spline
-    knots=2,                           # Internal knots
-    mesh_choice="percentile",          # Mesh placement: "percentile", "even", "custom"
+    # Variance structure: "homogeneous", "covariate_dependent", "polynomial", or callable
+    variance="homogeneous",
 
-    # Distance measure
-    distance_measure="euclidean",      # "euclidean", "geodesic", "ocean_distance"
+    # Spatial random effect: "none", "abs_diff", "squared_diff", or callable
+    spatial_effect="none",
 
-    # Predictor settings
-    alpha_importance=True,            # Estimate feature importance weights
-    custom_predictor_mesh=None,        # Optional custom mesh for predictors
-    custom_dist_mesh=None,             # Optional custom mesh for distances
+    # Estimate per-predictor importance weights
+    alpha_importance=True,
+)
+```
 
-    # Variance & spatial
-    variance_type="homogeneous",       # "homogeneous", "covariate_dependent", "polynomial"
-    spatial_effect_type="none",        # "none", "abs_diff", "squared_diff"
-    length_scale=None,                 # GP length scale (auto-computed if None)
+### Preprocessor Configuration
 
-    # Other settings
-    diss_metric="braycurtis",
-    time_predictor=None,
-    connected_pairs_only=False,
+```python
+from gdmbayes import PreprocessorConfig
+
+preprocessor_config = PreprocessorConfig(
+    deg=3,                           # Degree of I-spline basis
+    knots=2,                         # Number of internal knots
+    mesh_choice="percentile",        # Knot placement: "percentile", "even", "custom"
+    distance_measure="euclidean",    # "euclidean", "geodesic", "ocean_distance"
+    custom_predictor_mesh=None,      # Optional custom mesh for predictors
+    custom_dist_mesh=None,           # Optional custom mesh for distances
 )
 ```
 
 ### Sampler Configuration
 
 ```python
-from spgdmm import SamplerConfig
+from gdmbayes import SamplerConfig
 
 sampler_config = SamplerConfig(
     draws=1000,              # Number of posterior samples
@@ -220,6 +219,58 @@ sampler_config = SamplerConfig(
 )
 
 model = spGDMM(sampler_config=sampler_config.to_dict())
+```
+
+## Custom Variance and Spatial Functions
+
+Both `variance` and `spatial_effect` in `ModelConfig` accept a callable in addition to the built-in string options. Callables are executed inside a PyMC model context, so you can define new priors directly.
+
+### Custom variance
+
+Signature: `fn(mu, X_sigma) -> sigma2`
+
+- `mu`: PyTensor vector — the linear predictor for each site pair.
+- `X_sigma`: `np.ndarray` of shape `(n_pairs, k)` or `None` — auxiliary covariates (currently pairwise geographic distance).
+- Returns a PyTensor scalar or vector representing `sigma²`.
+
+```python
+import pymc as pm
+from gdmbayes import ModelConfig
+
+def my_variance(mu, X_sigma):
+    beta_s = pm.HalfNormal("beta_s", sigma=1)
+    return beta_s * pm.math.exp(mu)
+
+model_config = ModelConfig(variance=my_variance)
+```
+
+### Custom spatial effect
+
+Signature: `fn(psi, row_ind, col_ind) -> effect`
+
+- `psi`: PyTensor vector of length `n_sites` — GP latent values at each training site.
+- `row_ind`, `col_ind`: integer arrays — upper-triangle pair indices from `np.triu_indices(n_sites, k=1)`.
+- Returns a PyTensor vector of length `n_pairs` to add to `mu`.
+
+```python
+import pymc as pm
+from gdmbayes import ModelConfig
+
+def my_spatial(psi, row_ind, col_ind):
+    return pm.math.tanh(psi[row_ind] - psi[col_ind])
+
+model_config = ModelConfig(spatial_effect=my_spatial)
+```
+
+### Registries
+
+The built-in functions are stored in `VARIANCE_FUNCTIONS` and `SPATIAL_FUNCTIONS`:
+
+```python
+from gdmbayes import VARIANCE_FUNCTIONS, SPATIAL_FUNCTIONS
+
+print(list(VARIANCE_FUNCTIONS))   # ['homogeneous', 'covariate_dependent', 'polynomial']
+print(list(SPATIAL_FUNCTIONS))    # ['abs_diff', 'squared_diff']
 ```
 
 ## Plotting and Diagnostics
