@@ -15,11 +15,11 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 import xarray as xr
-from geopy.distance import geodesic
 from scipy.spatial.distance import pdist
-from dms_variants.ispline import Isplines
 
 from ..core.base import ModelBuilder
+from ..core.config import PreprocessorConfig
+from ..preprocessing.preprocessor import GDMPreprocessor
 from .variants import ModelConfig, SamplerConfig, VarianceType, SpatialEffectType
 
 
@@ -63,20 +63,31 @@ class spGDMM(ModelBuilder):
 
     Parameters
     ----------
+    preprocessor : GDMPreprocessor, PreprocessorConfig, or None, optional
+        Data preprocessing configuration or a pre-built preprocessor.
+        If None, a default ``GDMPreprocessor(PreprocessorConfig())`` is used.
+        If a ``PreprocessorConfig`` is passed, it is wrapped in a ``GDMPreprocessor``.
     model_config : dict or ModelConfig, optional
-        Model structure configuration. Defaults to ``ModelConfig()``.
+        Model structure configuration (variance type, spatial effects, etc.).
+        Defaults to ``ModelConfig()``.
+
+        .. deprecated::
+            Passing preprocessing fields (``deg``, ``knots``, ``mesh_choice``,
+            ``distance_measure``, ``extrapolation``, etc.) via ``model_config``
+            is deprecated. Pass them via ``preprocessor`` instead.
     sampler_config : dict or SamplerConfig, optional
         MCMC sampler configuration. Defaults to PyMC/nutpie defaults.
 
     Examples
     --------
-    >>> from spgdmm import spGDMM, ModelConfig, VarianceType, SpatialEffectType
-    >>> config = ModelConfig(
-    ...     deg=3, knots=2,
+    >>> from spgdmm import spGDMM, ModelConfig, PreprocessorConfig, GDMPreprocessor
+    >>> from spgdmm import VarianceType, SpatialEffectType
+    >>> prep_cfg = PreprocessorConfig(deg=3, knots=2, distance_measure="euclidean")
+    >>> model_cfg = ModelConfig(
     ...     variance_type=VarianceType.HOMOGENEOUS,
     ...     spatial_effect_type=SpatialEffectType.ABS_DIFF,
     ... )
-    >>> model = spGDMM(model_config=config)
+    >>> model = spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
     >>> idata = model.fit(X, y)
     """
 
@@ -85,16 +96,60 @@ class spGDMM(ModelBuilder):
 
     def __init__(
         self,
-        model_config: dict | ModelConfig | None = None,
-        sampler_config: dict | SamplerConfig | None = None,
+        preprocessor: "GDMPreprocessor | PreprocessorConfig | None" = None,
+        model_config: "dict | ModelConfig | None" = None,
+        sampler_config: "dict | SamplerConfig | None" = None,
     ):
-        if isinstance(model_config, ModelConfig):
-            self._config = model_config
-        elif isinstance(model_config, dict):
+        # ------------------------------------------------------------------ #
+        # Resolve preprocessor
+        # ------------------------------------------------------------------ #
+        if isinstance(preprocessor, GDMPreprocessor):
+            self.preprocessor = preprocessor
+        elif isinstance(preprocessor, PreprocessorConfig):
+            self.preprocessor = GDMPreprocessor(config=preprocessor)
+        elif preprocessor is None:
+            self.preprocessor = GDMPreprocessor(config=PreprocessorConfig())
+        else:
+            raise TypeError(
+                f"preprocessor must be a GDMPreprocessor, PreprocessorConfig, or None; "
+                f"got {type(preprocessor)!r}"
+            )
+
+        # ------------------------------------------------------------------ #
+        # Resolve model_config — detect legacy preprocessing keys and warn
+        # ------------------------------------------------------------------ #
+        _PREPROCESSING_KEYS = {
+            "deg", "knots", "mesh_choice", "distance_measure",
+            "custom_dist_mesh", "custom_predictor_mesh", "extrapolation",
+            "diss_metric", "time_predictor", "connected_pairs_only",
+            "updated_predictor_mesh", "time_varying", "connectivity_percentile",
+            "length_scale",
+        }
+
+        if isinstance(model_config, dict):
+            legacy_keys = _PREPROCESSING_KEYS.intersection(model_config)
+            if legacy_keys and preprocessor is None:
+                warnings.warn(
+                    f"Passing preprocessing key(s) {sorted(legacy_keys)!r} via model_config "
+                    f"is deprecated. Use PreprocessorConfig / GDMPreprocessor instead. "
+                    f"The keys will be auto-forwarded to the preprocessor this time.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                # Auto-forward to preprocessor
+                prep_kwargs = {k: model_config[k] for k in legacy_keys}
+                self.preprocessor = GDMPreprocessor(
+                    config=PreprocessorConfig.from_dict(prep_kwargs)
+                )
             self._config = ModelConfig.from_dict(model_config)
+        elif isinstance(model_config, ModelConfig):
+            self._config = model_config
         else:
             self._config = ModelConfig()
 
+        # ------------------------------------------------------------------ #
+        # Sampler config
+        # ------------------------------------------------------------------ #
         if isinstance(sampler_config, SamplerConfig):
             sampler_config = sampler_config.to_dict()
 
@@ -118,8 +173,8 @@ class spGDMM(ModelBuilder):
         """
         Preprocess model data before fitting.
 
-        Transforms predictors using I-spline basis functions and computes
-        pairwise dissimilarities.
+        Delegates to ``self.preprocessor.fit()`` to compute spline meshes,
+        then populates ``TrainingMetadata`` and ``ModelMetadata``.
 
         Parameters
         ----------
@@ -128,164 +183,52 @@ class spGDMM(ModelBuilder):
         y : pd.Series
             Pairwise Bray-Curtis dissimilarities
         """
-        # Ensure X is a DataFrame
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
 
-        # Extract components from X
-        location_values = X.iloc[:, :2].values if X.shape[1] >= 2 else np.zeros((X.shape[0], 2))
-        time_idxs = X.iloc[:, 2].values if X.shape[1] >= 3 else np.zeros(X.shape[0])
-
-        # Environmental predictors — preserve column names when X is a DataFrame
-        if X.shape[1] >= 4:
-            pred_cols = X.iloc[:, 3:]
-            X_values = pred_cols.values
-            predictor_names_from_data = list(pred_cols.columns)
-        else:
-            X_values = np.empty((X.shape[0], 0))
-            predictor_names_from_data = []
-
         # Handle y as pre-computed condensed dissimilarities
-        # Add small epsilon to avoid log(0) - zeros are handled by censored likelihood
         y_array = np.asarray(y, dtype=float)
         log_y = np.log(np.maximum(y_array, np.finfo(float).eps))
 
-        # Store location values
         self.X = X
         self.y = log_y
 
-        # Create metadata
         n_sites = X.shape[0]
         self._pair_indices = np.triu_indices(n_sites, k=1)
 
-        # Define predictor mesh for I-splines
-        if X_values.shape[1] > 0:
-            mesh_choice = self._config.mesh_choice
-            deg = self._config.deg
-            knots = self._config.knots
+        # Fit the preprocessor — computes meshes and per-site I-spline bases
+        self.preprocessor.fit(X)
+        prep = self.preprocessor
 
-            # Ensure at least deg + 1 knot points for I-splines
-            # Even with knots=0, we need deg + 1 = 4 points for deg=3
-            n_knot_points = max(knots + 2, deg + 1)
+        # Retrieve preprocessor config for spline counting
+        cfg = prep._get_config()
+        n_spline_bases = prep.n_spline_bases_
+        n_predictors = prep.n_predictors_
+        predictor_names_from_data = prep.predictor_names_
 
-            if mesh_choice == "percentile":
-                predictor_mesh = np.percentile(
-                    X_values, np.linspace(0, 100, n_knot_points), axis=0
-                ).T
-            elif mesh_choice == "even":
-                min_vals = X_values.min(axis=0)
-                max_vals = X_values.max(axis=0)
-                predictor_mesh = np.linspace(
-                    min_vals, max_vals, n_knot_points, axis=0
-                ).T
-            else:  # custom
-                predictor_mesh = self._config.custom_predictor_mesh
-                if predictor_mesh is None:
-                    raise ValueError("custom_predictor_mesh must be provided for mesh_choice='custom'")
-
-            # Ensure mesh values are unique and sorted
-            # For predictors with non-unique values, expand to a small range
-            # Note: predictor_mesh has shape (n_predictors, n_knot_points), so we access rows with [i]
-            for i in range(predictor_mesh.shape[0]):
-                unique_vals = np.unique(predictor_mesh[i])
-                if len(unique_vals) < n_knot_points:
-                    # Values are not unique, use min/max with small perturbation
-                    min_val = np.min(X_values[:, i])
-                    max_val = np.max(X_values[:, i])
-                    if min_val == max_val:
-                        # All values are the same, create a small range
-                        range_val = np.finfo(float).eps * 1000
-                        predictor_mesh[i] = np.linspace(
-                            min_val - range_val, max_val + range_val, n_knot_points
-                        )
-                    else:
-                        predictor_mesh[i] = np.linspace(min_val, max_val, n_knot_points)
-        else:
-            predictor_mesh = np.empty((2, 0))
-
-        # Compute pairwise distance (simplified for basic model)
-        distance_measure = self._config.distance_measure
-        if distance_measure == "euclidean":
-            pw_distance = pdist(location_values, metric="euclidean") / 1000.0
-        elif distance_measure == "geodesic":
-            pw_distance = pdist(location_values, lambda u, v: geodesic(u, v).kilometers)
-        else:
-            # Default to euclidean
-            pw_distance = pdist(location_values, metric="euclidean") / 1000.0
-
-        # Create distance mesh
-        if self._config.custom_dist_mesh is not None:
-            dist_mesh = self._config.custom_dist_mesh
-        else:
-            # Ensure at least deg + 1 knot points for I-splines
-            dist_n_knot_points = max(self._config.knots + 2, self._config.deg + 1)
-            dist_mesh = np.percentile(pw_distance, np.linspace(0, 100, dist_n_knot_points))
-
-            # Ensure mesh values are unique and sorted
-            unique_vals = np.unique(dist_mesh)
-            if len(unique_vals) < dist_n_knot_points:
-                min_val = np.min(pw_distance)
-                max_val = np.max(pw_distance)
-                if min_val == max_val:
-                    # All distances are the same, create a small range
-                    range_val = np.finfo(float).eps * 1000
-                    dist_mesh = np.linspace(
-                        min_val - range_val, max_val + range_val, dist_n_knot_points
-                    )
-                else:
-                    dist_mesh = np.linspace(min_val, max_val, dist_n_knot_points)
-
-        # Transform environmental predictors with I-splines
-        if X_values.shape[1] > 0:
-            n_predictors = X_values.shape[1]
-            n_spline_bases = self._config.deg + self._config.knots
-            # Fall back to generic names only for plain arrays
-            if not predictor_names_from_data or len(predictor_names_from_data) != n_predictors:
-                predictor_names_from_data = [f"pred_{i}" for i in range(n_predictors)]
-
-            Expanded_mesh = predictor_mesh
-            X_expanded = X_values
-
-            # Clip values to mesh bounds
-            X_clipped = np.clip(
-                X_expanded,
-                Expanded_mesh[:, 0],
-                Expanded_mesh[:, -1],
-            )
-
-            # Compute I-spline bases for each predictor
-            I_spline_bases = np.column_stack([
-                Isplines(self._config.deg, Expanded_mesh[i], X_clipped[:, i]).I(j)
-                for i in range(n_predictors)
-                for j in range(1, n_spline_bases + 1)
-            ])
-        else:
-            I_spline_bases = np.empty((n_sites, 0))
-            n_predictors = 0
-            n_spline_bases = self._config.deg + self._config.knots
-
-        # Compute pairwise differences of I-spline bases
+        # Build pairwise I-spline diffs
+        I_spline_bases = prep.I_spline_bases_
         if I_spline_bases.shape[1] > 0:
             I_spline_bases_diffs = np.array([
-                pdist(I_spline_bases[:, i].reshape(-1, 1), metric='euclidean')
+                pdist(I_spline_bases[:, i].reshape(-1, 1), metric="euclidean")
                 for i in range(I_spline_bases.shape[1])
             ]).T
         else:
             I_spline_bases_diffs = np.empty((n_sites * (n_sites - 1) // 2, 0))
 
-        # Compute distance-spline bases
+        # Compute distance splines using pw_distance on training locations
+        pw_distance = prep._pw_distance(prep.location_values_train_)
+        dist_mesh = prep.dist_mesh_
         pw_dist_clipped = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
+        from dms_variants.ispline import Isplines
         dist_spline_bases = np.column_stack([
-            Isplines(self._config.deg, dist_mesh, pw_dist_clipped).I(j)
+            Isplines(cfg.deg, dist_mesh, pw_dist_clipped).I(j)
             for j in range(1, n_spline_bases + 1)
         ])
 
         # Combine features
         X_GDM = np.column_stack([I_spline_bases_diffs, dist_spline_bases])
 
-        # Store metadata
-        # no_cols_env = number of environmental columns (F * J)
-        # no_cols_total = total columns (F * J + J for distance)
         n_cols_env = I_spline_bases_diffs.shape[1] if I_spline_bases_diffs.size > 0 else 0
         n_cols_dist = dist_spline_bases.shape[1] if dist_spline_bases.size > 0 else 0
 
@@ -303,11 +246,11 @@ class spGDMM(ModelBuilder):
         )
 
         self.training_metadata = TrainingMetadata(
-            location_values_train=location_values,
-            predictor_mesh=predictor_mesh,
-            dist_mesh=dist_mesh,
-            length_scale=float(np.median(pw_distance)) if len(pw_distance) > 0 else 100.0,
-            I_spline_bases=I_spline_bases,
+            location_values_train=prep.location_values_train_,
+            predictor_mesh=prep.predictor_mesh_,
+            dist_mesh=prep.dist_mesh_,
+            length_scale=prep.length_scale_,
+            I_spline_bases=prep.I_spline_bases_,
         )
 
         self.n_features_in_ = n_predictors
@@ -342,12 +285,15 @@ class spGDMM(ModelBuilder):
         X_values = self.X_transformed
         log_y_values = self.y_transformed
 
+        cfg = self.preprocessor._get_config()
+        n_spline_bases = cfg.deg + cfg.knots
+
         self.model_coords = {
             "obs_pair": np.arange(X_values.shape[0]),
             "predictor": self.metadata.column_names,
             "site_train": np.arange(self.metadata.no_sites_train),
             "feature": self.metadata.predictors,
-            "basis_function": np.arange(1, self._config.deg + self._config.knots + 1),
+            "basis_function": np.arange(1, n_spline_bases + 1),
         }
 
         # Model construction
@@ -360,7 +306,7 @@ class spGDMM(ModelBuilder):
             beta_0 = pm.Normal("beta_0", mu=0, sigma=10)
 
             if self._config.alpha_importance:
-                J = self._config.deg + self._config.knots
+                J = n_spline_bases
                 F = len(self.metadata.predictors)
 
                 if F > 0:
@@ -372,7 +318,6 @@ class spGDMM(ModelBuilder):
                     )
 
                     # I-spline dot product
-                    # X_data contains [env_diffs, dist_splines], env_diffs has F*J columns
                     n_cols_env = self.metadata.no_cols_env
                     n_cols_dist = self.metadata.no_cols_dist
                     X_env = X_data[:, :n_cols_env]
@@ -384,7 +329,6 @@ class spGDMM(ModelBuilder):
                     mu = beta_0 + pm.math.dot(warped, alpha)
 
                     # Add distance spline coefficients
-                    # Distance splines are the remaining columns
                     if n_cols_dist > 0:
                         dist_cols = X_data[:, n_cols_env:]
                         beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=1, shape=n_cols_dist)
@@ -442,7 +386,8 @@ class spGDMM(ModelBuilder):
                 elif self._config.spatial_effect_type == SpatialEffectType.CUSTOM:
                     if self._config.custom_spatial_effect_fn is None:
                         raise ValueError(
-                            "spatial_effect_type=CUSTOM requires custom_spatial_effect_fn to be set in ModelConfig."
+                            "spatial_effect_type=CUSTOM requires custom_spatial_effect_fn "
+                            "to be set in ModelConfig."
                         )
                     mu += self._config.custom_spatial_effect_fn(psi, row_ind, col_ind)
 
@@ -462,6 +407,8 @@ class spGDMM(ModelBuilder):
         """
         Transform site-level predictors into GDM feature space.
 
+        Delegates to ``self.preprocessor.transform()``.
+
         Parameters
         ----------
         X_pred : pd.DataFrame or np.ndarray
@@ -474,13 +421,6 @@ class spGDMM(ModelBuilder):
         -------
         np.ndarray
             Transformed feature matrix.
-
-        Notes
-        -----
-        Out-of-range behaviour (values outside the training mesh bounds) is controlled
-        by ``self._config.extrapolation``: ``"clip"`` (default) clamps and warns,
-        ``"error"`` raises ``ValueError``, ``"nan"`` propagates NaN for affected
-        sites or pairs.
         """
         if not isinstance(X_pred, (pd.DataFrame, np.ndarray)):
             raise TypeError("X must be Pandas DataFrame or numpy array")
@@ -488,113 +428,19 @@ class spGDMM(ModelBuilder):
         if self.idata is None or "posterior" not in self.idata:
             raise ValueError("Model must be fitted before transforming data.")
 
-        location_values = X_pred.iloc[:, :2].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, :2]
-        X_values = X_pred.iloc[:, 3:].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, 3:]
-
         # Validate predictor count against training
+        X_values = X_pred.iloc[:, 3:].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, 3:]
         if self.n_features_in_ is not None and X_values.shape[1] != self.n_features_in_:
             raise ValueError(
                 f"X_pred has {X_values.shape[1]} environmental predictor(s) but the model "
                 f"was trained with {self.n_features_in_}."
             )
 
-        # predictor_mesh shape: (n_predictors, n_knot_points)
-        predictor_mesh = self.training_metadata.predictor_mesh
-        mode = self._config.extrapolation
-
-        # Compute out-of-range stats on non-NaN cells only to avoid spurious warnings
-        NaN_mask_raw = np.isnan(X_values)
-        valid_mask = ~NaN_mask_raw.any(axis=1)
-        X_valid = X_values[valid_mask]
-        lo, hi = predictor_mesh[:, 0], predictor_mesh[:, -1]
-        out_of_range_env = (X_valid < lo) | (X_valid > hi)
-        n_clipped_env = int(out_of_range_env.sum())
-
-        if n_clipped_env > 0:
-            if mode == "error":
-                raise ValueError(
-                    f"{n_clipped_env} env values are outside predictor_mesh bounds."
-                )
-            elif mode == "clip":
-                warnings.warn(f"{n_clipped_env} env values were clipped to predictor_mesh bounds.")
-
-        if mode == "nan" and n_clipped_env > 0:
-            X_valid_processed = X_valid.copy().astype(float)
-            X_valid_processed[out_of_range_env.any(axis=1)] = np.nan
-        else:
-            X_valid_processed = np.clip(X_valid, lo, hi)
-
-        # Rebuild full array (NaN rows remain NaN)
-        X_values_clipped = np.where(NaN_mask_raw, np.nan, 0.0)  # placeholder
-        X_values_clipped[valid_mask] = X_valid_processed
-        X_values_clipped[~valid_mask] = np.nan
-
-        NaN_mask = np.isnan(X_values_clipped)
-        X_clipped_nonan = X_values_clipped[~NaN_mask.any(axis=1)]
-        n_nan_rows = int((~valid_mask).sum())
-
-        n_spline_bases = self._config.deg + self._config.knots
-        I_spline_bases = np.column_stack([
-            Isplines(self._config.deg, predictor_mesh[i], X_clipped_nonan[:, i]).I(j)
-            for i in range(X_clipped_nonan.shape[1])
-            for j in range(1, n_spline_bases + 1)
-        ])
-
-        I_spline_bases_full = np.full((X_values_clipped.shape[0], I_spline_bases.shape[1]), np.nan)
-        I_spline_bases_full[~NaN_mask.any(axis=1)] = I_spline_bases
-
-        if biological_space:
-            self.prediction_metadata = {
-                "n_sites_pred": X_values.shape[0],
-                "n_clipped_env": n_clipped_env,
-                "n_nan_rows": n_nan_rows,
-            }
-            return I_spline_bases_full
-
-        I_spline_bases_diffs = np.array([
-            pdist(I_spline_bases_full[:, i].reshape(-1, 1), metric="euclidean")
-            for i in range(I_spline_bases_full.shape[1])
-        ]).T
-
-        pw_distance = self.pw_distance(location_values)
-        dist_mesh = self.training_metadata.dist_mesh
-        out_of_range_dist = (pw_distance < dist_mesh[0]) | (pw_distance > dist_mesh[-1])
-        n_clipped_dist = int(out_of_range_dist.sum())
-
-        if n_clipped_dist > 0:
-            if mode == "error":
-                raise ValueError(
-                    f"{n_clipped_dist} pairwise distances are outside dist_mesh bounds."
-                )
-            elif mode == "clip":
-                warnings.warn(f"{n_clipped_dist} pairwise distances were clipped to dist_mesh bounds.")
-
-        if mode == "nan" and n_clipped_dist > 0:
-            pw_distance_processed = pw_distance.astype(float).copy()
-            pw_distance_processed[out_of_range_dist] = np.nan
-            valid_dist = ~out_of_range_dist
-            dist_predictors = np.full((len(pw_distance), n_spline_bases), np.nan)
-            if valid_dist.any():
-                dist_predictors[valid_dist] = np.column_stack([
-                    Isplines(self._config.deg, dist_mesh, pw_distance_processed[valid_dist]).I(j)
-                    for j in range(1, n_spline_bases + 1)
-                ])
-        else:
-            pw_distance_processed = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
-            dist_predictors = np.column_stack([
-                Isplines(self._config.deg, dist_mesh, pw_distance_processed).I(j)
-                for j in range(1, n_spline_bases + 1)
-            ])
-
-        self.prediction_metadata = {
-            "n_sites_pred": X_values.shape[0],
-            "n_pairs_pred": len(pw_distance),
-            "n_clipped_env": n_clipped_env,
-            "n_clipped_dist": n_clipped_dist,
-            "n_nan_rows": n_nan_rows,
-        }
-
-        return np.column_stack([I_spline_bases_diffs, dist_predictors])
+        result = self.preprocessor.transform(X_pred, biological_space=biological_space)
+        self.prediction_metadata = getattr(
+            self.preprocessor, "_last_prediction_metadata", None
+        )
+        return result
 
     def _predict_biological_space(
         self, X_pred: pd.DataFrame, metric: str = "median"
@@ -620,7 +466,6 @@ class spGDMM(ModelBuilder):
         else:
             beta_posterior_summary = self.idata.posterior.beta.median(dim=["chain", "draw"])
 
-        # In this package, beta covers only environmental predictors (no "distance" feature)
         X_pred_splined = self._transform_for_prediction(X_pred, biological_space=True)
         X_pred_splined = X_pred_splined.reshape(
             1, -1,
@@ -729,27 +574,11 @@ class spGDMM(ModelBuilder):
     def _save_input_params(self, idata: az.InferenceData) -> None:
         """Persist transformation state (meshes, coordinates) in idata.constant_data.
 
-        This makes the model fully self-contained: after save/load the meshes
-        are available for inspection without re-running preprocessing.
+        Delegates to ``self.preprocessor.to_xarray()`` so that models can be
+        serialized and reloaded for prediction without refitting.
         """
-        tm = self.training_metadata
-        md = self.metadata
-        ds = xr.Dataset(
-            {
-                "predictor_mesh": xr.DataArray(
-                    tm.predictor_mesh, dims=("feature", "mesh_knot")
-                ),
-                "dist_mesh": xr.DataArray(tm.dist_mesh, dims=("dist_knot",)),
-                "location_values_train": xr.DataArray(
-                    tm.location_values_train, dims=("site_train", "coord")
-                ),
-                "I_spline_bases_train": xr.DataArray(
-                    tm.I_spline_bases, dims=("site_train", "spline_col")
-                ),
-                "length_scale": xr.DataArray(tm.length_scale),
-            }
-        )
-        idata.attrs["predictor_names"] = json.dumps(md.predictors)
+        ds = self.preprocessor.to_xarray()
+        idata.attrs["predictor_names"] = json.dumps(self.metadata.predictors)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -787,15 +616,28 @@ class spGDMM(ModelBuilder):
         return self._config.to_dict()
 
     def pw_distance(
-        self, location_values: np.ndarray, distance_measure: str = "euclidean"
+        self, location_values: np.ndarray, distance_measure: str | None = None
     ) -> np.ndarray:
-        """Compute pairwise geographical distance."""
-        if distance_measure == "geodesic":
-            return pdist(location_values, lambda u, v: geodesic(u, v).kilometers)
-        elif distance_measure == "euclidean":
-            return pdist(location_values, metric="euclidean") / 1000.0
-        else:
-            raise ValueError(f"Unknown distance measure: {distance_measure}")
+        """Compute pairwise geographical distance.
+
+        Pass-through to ``self.preprocessor._pw_distance()`` for backward
+        compatibility. The ``distance_measure`` argument is accepted but the
+        preprocessor's configured measure is used; pass a different
+        ``distance_measure`` to override for a one-off call.
+        """
+        if distance_measure is not None:
+            # One-off override: build a temporary config
+            cfg = self.preprocessor._get_config()
+            tmp_cfg = PreprocessorConfig(
+                deg=cfg.deg,
+                knots=cfg.knots,
+                mesh_choice=cfg.mesh_choice,
+                distance_measure=distance_measure,
+                extrapolation=cfg.extrapolation,
+            )
+            tmp = GDMPreprocessor(config=tmp_cfg)
+            return tmp._pw_distance(location_values)
+        return self.preprocessor._pw_distance(location_values)
 
 
 __all__ = ["spGDMM"]

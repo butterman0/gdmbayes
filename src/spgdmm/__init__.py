@@ -48,6 +48,10 @@ from .plotting.plots import (
 
 # Core utilities
 from .core.base import ModelBuilder
+from .core.config import PreprocessorConfig
+
+# Preprocessing
+from .preprocessing.preprocessor import GDMPreprocessor
 
 # Utilities
 from .utils.format_site_pair import format_site_pair, BioFormat
@@ -68,6 +72,9 @@ __all__ = [
     "VarianceType",
     "SpatialEffectType",
     "SamplerConfig",
+    # Preprocessor
+    "PreprocessorConfig",
+    "GDMPreprocessor",
     # Distance utilities
     "DistanceCalculator",
     "compute_distance_matrix",
