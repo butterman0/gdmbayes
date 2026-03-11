@@ -164,7 +164,10 @@ class spGDMM(BaseEstimator):
         self.training_metadata: TrainingMetadata | None = None
         # Populated after each _transform_for_prediction call with clipping/NaN stats.
         self.prediction_metadata: dict | None = None
-        self.n_features_in_: int | None = None
+
+    def __sklearn_is_fitted__(self) -> bool:
+        """Return True only after a successful fit (idata with posterior exists)."""
+        return self.idata is not None and "posterior" in self.idata
 
     @property
     def config(self) -> dict:
@@ -436,13 +439,18 @@ class spGDMM(BaseEstimator):
         """
         ds = self.preprocessor.to_xarray()
         idata.attrs["predictor_names"] = json.dumps(self.metadata.predictors)
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=UserWarning,
-                message="The group constant_data is not defined",
-            )
-            idata.add_groups(constant_data=ds)
+        if hasattr(idata, "constant_data"):
+            # pm.sample already created constant_data for pm.Data variables — merge in place.
+            merged = idata.constant_data.merge(ds)
+            idata.constant_data = merged
+        else:
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    category=UserWarning,
+                    message="The group constant_data is not defined",
+                )
+                idata.add_groups(constant_data=ds)
 
     # ------------------------------------------------------------------ #
     # Lifecycle methods (inlined from ModelBuilder, bugs fixed)
