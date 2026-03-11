@@ -17,10 +17,10 @@ import pandas as pd
 import xarray as xr
 import arviz as az
 
-from .spgdmm import spGDMM
-from .config import ModelConfig, SamplerConfig
-from ..core.config import PreprocessorConfig
-from ..preprocessing.preprocessor import GDMPreprocessor
+from ._spgdmm import spGDMM
+from ._config import ModelConfig, SamplerConfig
+from ..core._config import PreprocessorConfig
+from ..preprocessing._preprocessor import GDMPreprocessor
 
 # Type alias for InferenceData
 InferenceData = az.InferenceData

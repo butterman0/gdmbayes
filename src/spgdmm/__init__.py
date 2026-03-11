@@ -11,16 +11,16 @@ from . import _version  # noqa: F401
 __version__ = _version.__version__
 
 # Core model
-from .models.spgdmm import spGDMM
+from .models._spgdmm import spGDMM
 
 # GDM-compatible interface
-from .models.gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract, rgb_biological_space
+from .models._gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract, rgb_biological_space
 
 # Model configuration
-from .models.config import ModelConfig, SamplerConfig
+from .models._config import ModelConfig, SamplerConfig
 
 # Built-in variance functions
-from .models.variance import (
+from .models._variance import (
     variance_homogeneous,
     variance_covariate_dependent,
     variance_polynomial,
@@ -28,7 +28,7 @@ from .models.variance import (
 )
 
 # Built-in spatial effect functions
-from .models.spatial import (
+from .models._spatial import (
     spatial_abs_diff,
     spatial_squared_diff,
     SPATIAL_FUNCTIONS,
@@ -49,7 +49,7 @@ from .distances import (
 )
 
 # Plotting
-from .plotting.plots import (
+from .plotting._plots import (
     plot_isplines,
     plot_crps_comparison,
     summarise_sampling,
@@ -58,14 +58,14 @@ from .plotting.plots import (
 )
 
 # Core utilities
-from .core.base import ModelBuilder
-from .core.config import PreprocessorConfig
+from .core._base import ModelBuilder
+from .core._config import PreprocessorConfig
 
 # Preprocessing
-from .preprocessing.preprocessor import GDMPreprocessor
+from .preprocessing._preprocessor import GDMPreprocessor
 
 # Utilities
-from .utils.format_site_pair import format_site_pair, BioFormat
+from .utils._format_site_pair import format_site_pair, BioFormat
 
 __all__ = [
     # Version

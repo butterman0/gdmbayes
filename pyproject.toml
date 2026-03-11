@@ -82,5 +82,5 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/spgdmm/tests"]
 python_files = ["test_*.py"]
