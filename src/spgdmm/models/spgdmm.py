@@ -344,9 +344,9 @@ class spGDMM(ModelBuilder):
 
         self.model_coords = {
             "obs_pair": np.arange(X_values.shape[0]),
-            "predictor": self.metadata["column_names"],
-            "site_train": np.arange(self.metadata["no_sites_train"]),
-            "feature": self.metadata["predictors"],
+            "predictor": self.metadata.column_names,
+            "site_train": np.arange(self.metadata.no_sites_train),
+            "feature": self.metadata.predictors,
             "basis_function": np.arange(1, self._config.deg + self._config.knots + 1),
         }
 
@@ -361,7 +361,7 @@ class spGDMM(ModelBuilder):
 
             if self._config.alpha_importance:
                 J = self._config.deg + self._config.knots
-                F = len(self.metadata["predictors"])
+                F = len(self.metadata.predictors)
 
                 if F > 0:
                     # Dirichlet prior over I-spline weights
@@ -373,8 +373,8 @@ class spGDMM(ModelBuilder):
 
                     # I-spline dot product
                     # X_data contains [env_diffs, dist_splines], env_diffs has F*J columns
-                    n_cols_env = self.metadata.get("no_cols_env", F * J)
-                    n_cols_dist = self.metadata.get("no_cols_dist", 0)
+                    n_cols_env = self.metadata.no_cols_env
+                    n_cols_dist = self.metadata.no_cols_dist
                     X_env = X_data[:, :n_cols_env]
                     X_reshaped = X_env.reshape((-1, F, J))
                     warped = (X_reshaped * beta[None, :, :]).sum(axis=2)
@@ -393,15 +393,15 @@ class spGDMM(ModelBuilder):
                     # No predictors, just distance
                     mu = beta_0
             else:
-                beta = pm.LogNormal("beta", mu=0, sigma=1, shape=self.metadata["no_cols"])
+                beta = pm.LogNormal("beta", mu=0, sigma=1, shape=self.metadata.no_cols)
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
             # Variance structure
             if self._config.variance_type == VarianceType.HOMOGENEOUS:
                 sigma2 = pm.InverseGamma("sigma2", alpha=1, beta=1)
             elif self._config.variance_type == VarianceType.COVARIATE_DEPENDENT:
-                if self.metadata["X_sigma"] is not None and self.metadata["X_sigma"].shape[1] > 0:
-                    X_sigma = self.metadata["X_sigma"]
+                if self.metadata.X_sigma is not None and self.metadata.X_sigma.shape[1] > 0:
+                    X_sigma = self.metadata.X_sigma
                     beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=X_sigma.shape[1])
                     sigma2 = pm.math.exp(pm.math.dot(X_sigma, beta_sigma))
                 else:
@@ -418,7 +418,7 @@ class spGDMM(ModelBuilder):
                     raise ValueError(
                         "variance_type=CUSTOM requires custom_variance_fn to be set in ModelConfig."
                     )
-                X_sigma = self.metadata.get("X_sigma")
+                X_sigma = self.metadata.X_sigma
                 sigma2 = self._config.custom_variance_fn(mu, X_sigma)
             else:
                 sigma2 = pm.InverseGamma("sigma2", alpha=1, beta=1)
@@ -426,8 +426,8 @@ class spGDMM(ModelBuilder):
             # Spatial random effects
             if self._config.spatial_effect_type != SpatialEffectType.NONE:
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
-                location_values = self.training_metadata["location_values_train"]
-                length_scale = self.training_metadata["length_scale"] / 2
+                location_values = self.training_metadata.location_values_train
+                length_scale = self.training_metadata.length_scale / 2
 
                 cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale)
                 gp = pm.gp.Latent(cov_func=cov)
