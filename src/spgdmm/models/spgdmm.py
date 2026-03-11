@@ -19,7 +19,9 @@ from scipy.spatial.distance import pdist
 from ..core.base import ModelBuilder
 from ..core.config import PreprocessorConfig
 from ..preprocessing.preprocessor import GDMPreprocessor
-from .variants import ModelConfig, SamplerConfig
+from .config import ModelConfig, SamplerConfig
+from .variance import VARIANCE_FUNCTIONS
+from .spatial import SPATIAL_FUNCTIONS
 
 
 @dataclass
@@ -47,58 +49,6 @@ class TrainingMetadata:
     dist_mesh: np.ndarray              # (n_knot_points,)
     length_scale: float                # GP spatial length scale
     I_spline_bases: np.ndarray         # (n_sites, n_predictors * n_bases)
-
-
-if t.TYPE_CHECKING:
-    from ..distances.ocean import ocean_path_distance_pdist
-
-
-# ---------------------------------------------------------------------------
-# Built-in variance strategy functions
-# ---------------------------------------------------------------------------
-
-def _variance_homogeneous(mu, X_sigma):
-    return pm.InverseGamma("sigma2", alpha=1, beta=1)
-
-
-def _variance_covariate_dependent(mu, X_sigma):
-    if X_sigma is not None and X_sigma.shape[1] > 0:
-        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=X_sigma.shape[1])
-        return pm.math.exp(pm.math.dot(X_sigma, beta_sigma))
-    return pm.InverseGamma("sigma2", alpha=1, beta=1)
-
-
-def _variance_polynomial(mu, X_sigma):
-    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=4)
-    return pm.math.exp(
-        beta_sigma[0] + beta_sigma[1] * mu +
-        beta_sigma[2] * mu ** 2 +
-        beta_sigma[3] * mu ** 3
-    )
-
-
-_VARIANCE_STRATEGIES: t.Dict[str, t.Callable] = {
-    "homogeneous": _variance_homogeneous,
-    "covariate_dependent": _variance_covariate_dependent,
-    "polynomial": _variance_polynomial,
-}
-
-# ---------------------------------------------------------------------------
-# Built-in spatial effect strategy functions
-# ---------------------------------------------------------------------------
-
-def _spatial_abs_diff(psi, row_ind, col_ind):
-    return pm.math.abs(psi[row_ind] - psi[col_ind])
-
-
-def _spatial_squared_diff(psi, row_ind, col_ind):
-    return pm.math.abs(psi[row_ind] - psi[col_ind]) ** 2
-
-
-_SPATIAL_STRATEGIES: t.Dict[str, t.Callable] = {
-    "abs_diff": _spatial_abs_diff,
-    "squared_diff": _spatial_squared_diff,
-}
 
 
 class spGDMM(ModelBuilder):
@@ -387,7 +337,7 @@ class spGDMM(ModelBuilder):
             variance_fn = (
                 self._config.variance
                 if callable(self._config.variance)
-                else _VARIANCE_STRATEGIES[self._config.variance]
+                else VARIANCE_FUNCTIONS[self._config.variance]
             )
             sigma2 = variance_fn(mu, self.metadata.X_sigma)
 
@@ -406,7 +356,7 @@ class spGDMM(ModelBuilder):
                 spatial_fn = (
                     self._config.spatial_effect
                     if callable(self._config.spatial_effect)
-                    else _SPATIAL_STRATEGIES[self._config.spatial_effect]
+                    else SPATIAL_FUNCTIONS[self._config.spatial_effect]
                 )
                 mu += spatial_fn(psi, row_ind, col_ind)
 

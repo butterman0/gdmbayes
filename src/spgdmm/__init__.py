@@ -17,9 +17,21 @@ from .models.spgdmm import spGDMM
 from .models.gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract, rgb_biological_space
 
 # Model configuration
-from .models.variants import (
-    ModelConfig,
-    SamplerConfig,
+from .models.config import ModelConfig, SamplerConfig
+
+# Built-in variance functions
+from .models.variance import (
+    variance_homogeneous,
+    variance_covariate_dependent,
+    variance_polynomial,
+    VARIANCE_FUNCTIONS,
+)
+
+# Built-in spatial effect functions
+from .models.spatial import (
+    spatial_abs_diff,
+    spatial_squared_diff,
+    SPATIAL_FUNCTIONS,
 )
 
 # Distance utilities (general, not ocean-specific)
@@ -70,6 +82,15 @@ __all__ = [
     # Model configuration
     "ModelConfig",
     "SamplerConfig",
+    # Variance functions
+    "variance_homogeneous",
+    "variance_covariate_dependent",
+    "variance_polynomial",
+    "VARIANCE_FUNCTIONS",
+    # Spatial effect functions
+    "spatial_abs_diff",
+    "spatial_squared_diff",
+    "SPATIAL_FUNCTIONS",
     # Preprocessor
     "PreprocessorConfig",
     "GDMPreprocessor",

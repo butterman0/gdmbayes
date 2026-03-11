@@ -18,7 +18,7 @@ import xarray as xr
 import arviz as az
 
 from .spgdmm import spGDMM
-from .variants import ModelConfig, SamplerConfig
+from .config import ModelConfig, SamplerConfig
 from ..core.config import PreprocessorConfig
 from ..preprocessing.preprocessor import GDMPreprocessor
 
