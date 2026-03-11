@@ -2,31 +2,10 @@
 
 import warnings
 from dataclasses import dataclass
-from enum import Enum
-from typing import Callable, Literal, Optional
-
-import numpy as np
+from typing import Callable, Optional, Union
 
 
-class VarianceType(str, Enum):
-    """Variance structure types for spGDMM models."""
-
-    HOMOGENEOUS = "homogeneous"
-    COVARIATE_DEPENDENT = "covariate_dependent"
-    POLYNOMIAL = "polynomial"
-    CUSTOM = "custom"
-
-
-class SpatialEffectType(str, Enum):
-    """Spatial random effect types for spGDMM models."""
-
-    NONE = "none"
-    ABS_DIFF = "abs_diff"
-    SQUARED_DIFF = "squared_diff"
-    CUSTOM = "custom"
-
-
-@dataclass(frozen=False)
+@dataclass
 class SamplerConfig:
     """MCMC sampler configuration for spGDMM models."""
 
@@ -66,6 +45,9 @@ _PREPROCESSING_KEYS = frozenset({
     "length_scale",
 })
 
+_VALID_VARIANCE = frozenset({"homogeneous", "covariate_dependent", "polynomial"})
+_VALID_SPATIAL = frozenset({"none", "abs_diff", "squared_diff"})
+
 
 @dataclass
 class ModelConfig:
@@ -76,69 +58,70 @@ class ModelConfig:
     (spline degree, knots, distance measure, etc.) now live in
     :class:`~spgdmm.core.config.PreprocessorConfig`.
 
-    For custom variance or spatial effects, set the corresponding type to CUSTOM
-    and provide a callable:
-
-    - ``custom_variance_fn(mu, X_sigma) -> sigma2``: receives the linear predictor
-      ``mu`` (a PyTensor variable) and ``X_sigma`` (np.ndarray or None), and must
-      return a PyTensor expression for the variance ``sigma2``.
-
-    - ``custom_spatial_effect_fn(psi, row_ind, col_ind) -> effect``: receives the
-      GP latent variable ``psi``, and the upper-triangle index arrays ``row_ind`` and
-      ``col_ind``, and must return a PyTensor expression to add to ``mu``.
+    Parameters
+    ----------
+    alpha_importance : bool
+        Whether to use alpha importance weighting for predictors (default True).
+    variance : str or callable
+        Variance structure. Built-in strings: ``"homogeneous"`` (default),
+        ``"covariate_dependent"``, ``"polynomial"``.  Pass a callable for a
+        custom structure: ``fn(mu, X_sigma) -> sigma2``, where ``mu`` is a
+        PyTensor variable and ``X_sigma`` is an np.ndarray or None.
+    spatial_effect : str or callable
+        Spatial random effect. Built-in strings: ``"none"`` (default),
+        ``"abs_diff"``, ``"squared_diff"``.  Pass a callable for a custom
+        effect: ``fn(psi, row_ind, col_ind) -> effect``, where ``psi`` is the
+        GP latent variable and ``row_ind``/``col_ind`` are index arrays.
 
     Examples
     --------
-    Custom variance:
+    Built-in variance and spatial effect:
+
+    >>> config = ModelConfig(variance="polynomial", spatial_effect="abs_diff")
+
+    Custom variance callable:
 
     >>> import pymc as pm
     >>> def my_variance(mu, X_sigma):
     ...     beta_s = pm.HalfNormal("beta_s", sigma=1)
     ...     return beta_s * pm.math.exp(mu)
-    >>> config = ModelConfig(
-    ...     variance_type=VarianceType.CUSTOM,
-    ...     custom_variance_fn=my_variance,
-    ... )
+    >>> config = ModelConfig(variance=my_variance)
 
-    Custom spatial effect:
+    Custom spatial effect callable:
 
     >>> def my_spatial(psi, row_ind, col_ind):
     ...     return pm.math.tanh(psi[row_ind] - psi[col_ind])
-    >>> config = ModelConfig(
-    ...     spatial_effect_type=SpatialEffectType.CUSTOM,
-    ...     custom_spatial_effect_fn=my_spatial,
-    ... )
+    >>> config = ModelConfig(spatial_effect=my_spatial)
     """
 
-    # Predictor importance weighting
     alpha_importance: bool = True
+    variance: Union[str, Callable] = "homogeneous"
+    spatial_effect: Union[str, Callable] = "none"
 
-    # Variance structure
-    variance_type: VarianceType = VarianceType.HOMOGENEOUS
-    custom_variance_fn: Optional[Callable] = None
-
-    # Spatial effects
-    spatial_effect_type: SpatialEffectType = SpatialEffectType.NONE
-    custom_spatial_effect_fn: Optional[Callable] = None
+    def __post_init__(self):
+        if isinstance(self.variance, str) and self.variance not in _VALID_VARIANCE:
+            raise ValueError(
+                f"Unknown variance={self.variance!r}. "
+                f"Valid strings: {sorted(_VALID_VARIANCE)}. "
+                "Pass a callable for custom variance."
+            )
+        if isinstance(self.spatial_effect, str) and self.spatial_effect not in _VALID_SPATIAL:
+            raise ValueError(
+                f"Unknown spatial_effect={self.spatial_effect!r}. "
+                f"Valid strings: {sorted(_VALID_SPATIAL)}. "
+                "Pass a callable for custom spatial effect."
+            )
 
     def to_dict(self) -> dict:
         """Convert to dictionary suitable for serialization.
 
-        Note: ``custom_variance_fn`` and ``custom_spatial_effect_fn`` are not
-        serialized and will be ``None`` when reloaded from a saved model.
+        Note: callable ``variance`` and ``spatial_effect`` values are not
+        serialized; they will be ``None`` when reloaded from a saved model.
         """
         return {
             "alpha_importance": self.alpha_importance,
-            "variance_type": (
-                self.variance_type.value
-                if isinstance(self.variance_type, VarianceType)
-                else self.variance_type
-            ),
-            "spatial_effect_type": (
-                self.spatial_effect_type.value
-                if isinstance(self.spatial_effect_type, SpatialEffectType)
-                else self.spatial_effect_type
-            ),
+            "variance": self.variance if isinstance(self.variance, str) else None,
+            "spatial_effect": self.spatial_effect if isinstance(self.spatial_effect, str) else None,
         }
 
     @classmethod
@@ -159,24 +142,17 @@ class ModelConfig:
                 stacklevel=2,
             )
 
-        variance_type = config_dict.get("variance_type", VarianceType.HOMOGENEOUS)
-        if isinstance(variance_type, str):
-            variance_type = VarianceType(variance_type)
-
-        spatial_effect_type = config_dict.get("spatial_effect_type", SpatialEffectType.NONE)
-        if isinstance(spatial_effect_type, str):
-            spatial_effect_type = SpatialEffectType(spatial_effect_type)
+        variance = config_dict.get("variance", "homogeneous")
+        spatial_effect = config_dict.get("spatial_effect", "none")
 
         return cls(
             alpha_importance=config_dict.get("alpha_importance", True),
-            variance_type=variance_type,
-            spatial_effect_type=spatial_effect_type,
+            variance=variance,
+            spatial_effect=spatial_effect,
         )
 
 
 __all__ = [
-    "VarianceType",
-    "SpatialEffectType",
     "ModelConfig",
     "SamplerConfig",
 ]

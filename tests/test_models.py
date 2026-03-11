@@ -10,8 +10,6 @@ from scipy.spatial.distance import pdist
 from spgdmm import (
     spGDMM,
     ModelConfig,
-    VarianceType,
-    SpatialEffectType,
     SamplerConfig,
     PreprocessorConfig,
     GDMPreprocessor,
@@ -25,8 +23,8 @@ class TestModelConfig:
         """Test default model configuration — preprocessing fields are no longer present."""
         config = ModelConfig()
         assert config.alpha_importance is True
-        assert config.variance_type == VarianceType.HOMOGENEOUS
-        assert config.spatial_effect_type == SpatialEffectType.NONE
+        assert config.variance == "homogeneous"
+        assert config.spatial_effect == "none"
         # Preprocessing fields must NOT exist on ModelConfig any more
         assert not hasattr(config, "deg")
         assert not hasattr(config, "knots")
@@ -34,39 +32,38 @@ class TestModelConfig:
         assert not hasattr(config, "distance_measure")
         assert not hasattr(config, "extrapolation")
 
-    def test_custom_variance_type(self):
-        """Test CUSTOM variance type requires a callable."""
-        config = ModelConfig(variance_type=VarianceType.CUSTOM)
-        assert config.variance_type == VarianceType.CUSTOM
-        assert config.custom_variance_fn is None
-
+    def test_custom_variance_callable(self):
+        """Test that a callable can be passed as variance."""
         def my_fn(mu, X_sigma):
             return mu
 
-        config2 = ModelConfig(variance_type=VarianceType.CUSTOM, custom_variance_fn=my_fn)
-        assert config2.custom_variance_fn is my_fn
+        config = ModelConfig(variance=my_fn)
+        assert config.variance is my_fn
 
-    def test_custom_spatial_effect_type(self):
-        """Test CUSTOM spatial effect type requires a callable."""
-        config = ModelConfig(spatial_effect_type=SpatialEffectType.CUSTOM)
-        assert config.spatial_effect_type == SpatialEffectType.CUSTOM
-        assert config.custom_spatial_effect_fn is None
-
+    def test_custom_spatial_effect_callable(self):
+        """Test that a callable can be passed as spatial_effect."""
         def my_fn(psi, row_ind, col_ind):
             return psi[row_ind] - psi[col_ind]
 
-        config2 = ModelConfig(
-            spatial_effect_type=SpatialEffectType.CUSTOM,
-            custom_spatial_effect_fn=my_fn,
-        )
-        assert config2.custom_spatial_effect_fn is my_fn
+        config = ModelConfig(spatial_effect=my_fn)
+        assert config.spatial_effect is my_fn
+
+    def test_invalid_variance_string(self):
+        """Test that an invalid variance string raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown variance"):
+            ModelConfig(variance="bad_name")
+
+    def test_invalid_spatial_effect_string(self):
+        """Test that an invalid spatial_effect string raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown spatial_effect"):
+            ModelConfig(spatial_effect="bad_name")
 
     def test_config_to_dict(self):
         """Test converting config to dictionary — only Bayesian model fields."""
         config = ModelConfig()
         d = config.to_dict()
-        assert d["variance_type"] == "homogeneous"
-        assert d["spatial_effect_type"] == "none"
+        assert d["variance"] == "homogeneous"
+        assert d["spatial_effect"] == "none"
         # Preprocessing keys must not be present
         assert "deg" not in d
         assert "knots" not in d
@@ -76,9 +73,9 @@ class TestModelConfig:
     def test_config_from_dict(self):
         """Test creating config from dictionary — preprocessing keys emit DeprecationWarning."""
         import warnings as _warnings
-        d = {"variance_type": "homogeneous", "spatial_effect_type": "none"}
+        d = {"variance": "homogeneous", "spatial_effect": "none"}
         config = ModelConfig.from_dict(d)
-        assert config.variance_type == VarianceType.HOMOGENEOUS
+        assert config.variance == "homogeneous"
 
         # Legacy keys should trigger a DeprecationWarning but not crash
         legacy_d = {"deg": 5, "knots": 2, "mesh_choice": "even", "distance_measure": "geodesic"}
@@ -187,8 +184,8 @@ class TestSpGDMM:
     def test_model_initialization_default(self):
         """Test model initialization with defaults."""
         model = spGDMM()
-        assert model._config.variance_type == VarianceType.HOMOGENEOUS
-        assert model._config.spatial_effect_type == SpatialEffectType.NONE
+        assert model._config.variance == "homogeneous"
+        assert model._config.spatial_effect == "none"
         # Preprocessing settings now live on the preprocessor
         assert model.preprocessor._get_config().deg == 3
         assert model.preprocessor._get_config().knots == 2
@@ -202,9 +199,9 @@ class TestSpGDMM:
 
     def test_model_from_model_config(self):
         """Test creating model from ModelConfig."""
-        model_config = ModelConfig(variance_type=VarianceType.POLYNOMIAL)
+        model_config = ModelConfig(variance="polynomial")
         model = spGDMM(model_config=model_config)
-        assert model._config.variance_type == VarianceType.POLYNOMIAL
+        assert model._config.variance == "polynomial"
 
     def test_output_var(self, sample_data):
         """Test output_var property."""
@@ -218,8 +215,8 @@ class TestSpGDMM:
         model = spGDMM()
         config = model.get_default_model_config()
         assert isinstance(config, dict)
-        assert "variance_type" in config
-        assert "spatial_effect_type" in config
+        assert "variance" in config
+        assert "spatial_effect" in config
         # Preprocessing fields are not in ModelConfig
         assert "deg" not in config
 
@@ -236,7 +233,7 @@ class TestSpGDMM:
         model = spGDMM()
         config = model._serializable_model_config
         assert isinstance(config, dict)
-        assert "variance_type" in config
+        assert "variance" in config
         # Preprocessing fields not in model config
         assert "deg" not in config
         assert "knots" not in config

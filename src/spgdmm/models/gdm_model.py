@@ -18,7 +18,7 @@ import xarray as xr
 import arviz as az
 
 from .spgdmm import spGDMM
-from .variants import ModelConfig, SamplerConfig, VarianceType
+from .variants import ModelConfig, SamplerConfig
 from ..core.config import PreprocessorConfig
 from ..preprocessing.preprocessor import GDMPreprocessor
 
@@ -330,9 +330,9 @@ class GDMModel:
         intercept = float(np.mean(idata.posterior["beta_0"].values))
 
         coefficients = {}
-        variance_type = self.model_config.variance_type
+        variance = self.model_config.variance
 
-        if "alpha" in idata.posterior and variance_type != VarianceType.HOMOGENEOUS:
+        if "alpha" in idata.posterior and variance != "homogeneous":
             # Importance-weighted coefficients
             alpha_samples = idata.posterior["alpha"].values
             alpha = np.mean(alpha_samples, axis=(0, 1))
