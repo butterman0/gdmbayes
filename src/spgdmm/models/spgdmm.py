@@ -687,6 +687,38 @@ class spGDMM(ModelBuilder):
                 coords={"obs_pair": np.arange(X_transformed.shape[0])},
             )
 
+    def _save_input_params(self, idata: az.InferenceData) -> None:
+        """Persist transformation state (meshes, coordinates) in idata.constant_data.
+
+        This makes the model fully self-contained: after save/load the meshes
+        are available for inspection without re-running preprocessing.
+        """
+        tm = self.training_metadata
+        md = self.metadata
+        ds = xr.Dataset(
+            {
+                "predictor_mesh": xr.DataArray(
+                    tm.predictor_mesh, dims=("feature", "mesh_knot")
+                ),
+                "dist_mesh": xr.DataArray(tm.dist_mesh, dims=("dist_knot",)),
+                "location_values_train": xr.DataArray(
+                    tm.location_values_train, dims=("site_train", "coord")
+                ),
+                "I_spline_bases_train": xr.DataArray(
+                    tm.I_spline_bases, dims=("site_train", "spline_col")
+                ),
+                "length_scale": xr.DataArray(tm.length_scale),
+            }
+        )
+        idata.attrs["predictor_names"] = json.dumps(md.predictors)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message="The group constant_data is not defined",
+            )
+            idata.add_groups(constant_data=ds)
+
     @property
     def output_var(self) -> str:
         """Return the output variable name."""
