@@ -442,50 +442,6 @@ class spGDMM(ModelBuilder):
         )
         return result
 
-    def _predict_biological_space(
-        self, X_pred: pd.DataFrame, metric: str = "median"
-    ) -> xr.DataArray:
-        """
-        Apply posterior beta weights to I-spline transformed predictors.
-
-        Parameters
-        ----------
-        X_pred : pd.DataFrame
-            Site-level data. Index must be a MultiIndex with (yc, xc) levels
-            for downstream unstacking in rgb_biological_space.
-        metric : str, default="median"
-            Posterior summary metric: "median" or "mean".
-
-        Returns
-        -------
-        xr.DataArray
-            Dims (time, grid_cell, feature).
-        """
-        if metric == "mean":
-            beta_posterior_summary = self.idata.posterior.beta.mean(dim=["chain", "draw"])
-        else:
-            beta_posterior_summary = self.idata.posterior.beta.median(dim=["chain", "draw"])
-
-        X_pred_splined = self._transform_for_prediction(X_pred, biological_space=True)
-        X_pred_splined = X_pred_splined.reshape(
-            1, -1,
-            beta_posterior_summary.sizes["feature"],
-            beta_posterior_summary.sizes["basis_function"],
-        )
-        X_pred_splined_da = xr.DataArray(
-            X_pred_splined,
-            dims=("time", "grid_cell", "feature", "basis_function"),
-            coords={
-                "time": [0],
-                "grid_cell": X_pred.index,
-                "feature": beta_posterior_summary["feature"].values,
-                "basis_function": beta_posterior_summary["basis_function"].values,
-            },
-        )
-
-        out_da = (X_pred_splined_da * beta_posterior_summary).sum(dim="basis_function", skipna=False)
-        return out_da
-
     def rgb_biological_space(
         self, X_pred: pd.DataFrame, metric: str = "median"
     ) -> xr.DataArray:
@@ -509,7 +465,27 @@ class spGDMM(ModelBuilder):
         """
         from spgdmm.plotting.plots import rgb_from_biological_space
 
-        transformed = self._predict_biological_space(X_pred, metric=metric)
+        beta = (
+            self.idata.posterior.beta.mean(dim=["chain", "draw"])
+            if metric == "mean"
+            else self.idata.posterior.beta.median(dim=["chain", "draw"])
+        )
+        X_splined = self._transform_for_prediction(X_pred, biological_space=True).reshape(
+            1, -1, beta.sizes["feature"], beta.sizes["basis_function"]
+        )
+        transformed = (
+            xr.DataArray(
+                X_splined,
+                dims=("time", "grid_cell", "feature", "basis_function"),
+                coords={
+                    "time": [0],
+                    "grid_cell": X_pred.index,
+                    "feature": beta["feature"].values,
+                    "basis_function": beta["basis_function"].values,
+                },
+            )
+            * beta
+        ).sum(dim="basis_function", skipna=False)
         return rgb_from_biological_space(transformed)
 
     def _data_setter(
