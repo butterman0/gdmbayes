@@ -77,7 +77,7 @@ class spGDMM(ModelBuilder):
 
     Examples
     --------
-    >>> from spgdmm import spGDMM, ModelConfig, PreprocessorConfig
+    >>> from gdmbayes import spGDMM, ModelConfig, PreprocessorConfig
     >>> prep_cfg = PreprocessorConfig(deg=3, knots=2, distance_measure="euclidean")
     >>> model_cfg = ModelConfig(variance="homogeneous", spatial_effect="abs_diff")
     >>> model = spGDMM(preprocessor=prep_cfg, model_config=model_cfg)

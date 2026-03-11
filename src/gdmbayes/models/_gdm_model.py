@@ -157,7 +157,7 @@ class GDMModel:
     Examples
     --------
     >>> import pandas as pd
-    >>> from spgdmm import format_site_pair, GDMModel
+    >>> from gdmbayes import format_site_pair, GDMModel
     >>>
     >>> # Create site-pair data
     >>> site_pair = format_site_pair(bio_data, bio_format=2, pred_data=pred_data)
@@ -655,7 +655,7 @@ def gdm(
 
     Examples
     --------
-    >>> from spgdmm import format_site_pair, gdm
+    >>> from gdmbayes import format_site_pair, gdm
     >>>
     >>> site_pair = format_site_pair(bio_data, bio_format=2, pred_data=pred_data)
     >>> result = gdm(site_pair, geo=True, splines=3)
@@ -770,7 +770,7 @@ def rgb_biological_space(model, X_pred: pd.DataFrame, metric: str = "median") ->
     xr.DataArray
         Dims (time, xc, yc, rgb) with rgb in {R, G, B}, values in [0, 1].
     """
-    from spgdmm.plotting.plots import rgb_biological_space as _rgb
+    from gdmbayes.plotting._plots import rgb_biological_space as _rgb
     spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
     return _rgb(spgdmm_model.idata, X_pred, metric=metric)
 
