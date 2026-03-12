@@ -492,7 +492,7 @@ class spGDMM(BaseEstimator):
         progressbar: bool = True,
         random_seed=None,
         **kwargs,
-    ) -> az.InferenceData:
+    ) -> "spGDMM":
         """
         Fit the model using the provided data.
 
@@ -511,7 +511,8 @@ class spGDMM(BaseEstimator):
 
         Returns
         -------
-        az.InferenceData
+        self : spGDMM
+            The fitted estimator. Access inference data via ``self.idata``.
         """
         self.sampler_config = {
             **self.sampler_config,
@@ -539,7 +540,7 @@ class spGDMM(BaseEstimator):
             )
             self.idata.add_groups(fit_data=combined_data.to_xarray())
 
-        return self.idata
+        return self
 
     def save(self, fname: str) -> None:
         """Save inference data to a file.

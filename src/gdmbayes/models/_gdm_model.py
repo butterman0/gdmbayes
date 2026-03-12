@@ -14,6 +14,8 @@ import pandas as pd
 import xarray as xr
 import arviz as az
 
+from sklearn.base import BaseEstimator
+
 from ._spgdmm import spGDMM
 from ._config import ModelConfig, SamplerConfig
 from ..preprocessing._config import PreprocessorConfig
@@ -122,7 +124,7 @@ class GDMResult:
         )
 
 
-class GDMModel:
+class GDMModel(BaseEstimator):
     """
     Bayesian GDM wrapper with sklearn-style (X, y) interface.
 
@@ -244,7 +246,8 @@ class GDMModel:
         self._predictor_names = list(X.columns[3:])
 
         # Fit the underlying spGDMM model
-        idata = self._spgdmm.fit(X, y, **kwargs)
+        self._spgdmm.fit(X, y, **kwargs)
+        idata = self._spgdmm.idata
 
         # Posterior mean predictions (on log scale)
         predicted_log = self._spgdmm.predict(X)
@@ -252,10 +255,10 @@ class GDMModel:
 
         observed = y
 
-        # Null deviance (SS about the mean on the response scale)
+        # Null/model deviance: sum of squared residuals on the *response* scale.
+        # Note: GDM (frequentist) computes deviance on the cloglog link scale; these
+        # values are therefore not directly comparable across the two classes.
         null_dev = float(np.sum((observed - np.mean(observed)) ** 2))
-
-        # Model deviance (SS about predicted on the response scale)
         gdm_dev = float(np.sum((observed - predicted) ** 2))
 
         explained = max(0.0, (null_dev - gdm_dev) / null_dev * 100) if null_dev > 0 else 0.0
@@ -267,13 +270,23 @@ class GDMModel:
         coefficients = {}
         knots_dict = {}
         if hasattr(self._spgdmm, "training_metadata") and self._spgdmm.training_metadata:
-            pred_mesh = self._spgdmm.training_metadata.get("predictor_mesh", None)
+            pred_mesh = self._spgdmm.training_metadata.predictor_mesh
             if pred_mesh is not None and pred_mesh.shape[0] > 0:
+                n_bases = self._spgdmm.preprocessor.n_spline_bases_
+                beta_median = (
+                    idata.posterior["beta"].median(dim=["chain", "draw"]).values
+                    if "beta" in idata.posterior
+                    else None
+                )
                 for i, pred in enumerate(self._predictor_names):
                     if i < pred_mesh.shape[0]:
                         knots_dict[pred] = pred_mesh[i]
-                        coefficients[pred] = 1.0  # placeholder; full coef extraction requires posterior eval
-            dist_mesh = self._spgdmm.training_metadata.get("dist_mesh", None)
+                        if beta_median is not None:
+                            start, end = i * n_bases, (i + 1) * n_bases
+                            coefficients[pred] = beta_median[start:end].tolist()
+                        else:
+                            coefficients[pred] = []
+            dist_mesh = self._spgdmm.training_metadata.dist_mesh
             if self.geo and dist_mesh is not None:
                 knots_dict["geographic"] = dist_mesh
 
@@ -409,12 +422,10 @@ def gdm_transform(model, newdata: pd.DataFrame) -> pd.DataFrame:
 
     I_spline_bases = spgdmm_model._transform_for_prediction(newdata, biological_space=True)
 
-    predictor_mesh = spgdmm_model.training_metadata["predictor_mesh"]
+    predictor_mesh = spgdmm_model.training_metadata.predictor_mesh
     n_predictors = predictor_mesh.shape[0]
     n_basis = spgdmm_model._config.deg + spgdmm_model._config.knots
-    predictor_names = spgdmm_model.metadata.get(
-        "predictors", [f"pred_{i}" for i in range(n_predictors)]
-    )
+    predictor_names = spgdmm_model.metadata.predictors or [f"pred_{i}" for i in range(n_predictors)]
 
     columns = [
         f"{pred}_{j}"
@@ -445,9 +456,9 @@ def ispline_extract(model) -> dict:
     """
     spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
 
-    predictor_mesh = spgdmm_model.training_metadata["predictor_mesh"]
-    dist_mesh = spgdmm_model.training_metadata["dist_mesh"]
-    predictor_names = spgdmm_model.metadata.get("predictors", [])
+    predictor_mesh = spgdmm_model.training_metadata.predictor_mesh
+    dist_mesh = spgdmm_model.training_metadata.dist_mesh
+    predictor_names = spgdmm_model.metadata.predictors
 
     result = {}
 
