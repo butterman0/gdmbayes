@@ -89,6 +89,9 @@ class GDM(BaseEstimator, RegressorMixin):
             return X_full  # env columns + dist columns
         return X_full[:, :n_env]  # env columns only
 
+    def __sklearn_is_fitted__(self):
+        return hasattr(self, "coef_")
+
     def fit(self, X: pd.DataFrame, y: np.ndarray) -> "GDM":
         """Fit the GDM.
 

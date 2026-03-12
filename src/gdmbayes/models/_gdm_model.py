@@ -211,6 +211,9 @@ class GDMModel(BaseEstimator):
         self._fit_result: GDMResult | None = None
         self._predictor_names: list[str] | None = None
 
+    def __sklearn_is_fitted__(self):
+        return hasattr(self, "_fit_result") and self._fit_result is not None
+
     def fit(
         self,
         X: pd.DataFrame,
