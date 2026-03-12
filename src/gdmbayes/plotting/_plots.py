@@ -187,7 +187,7 @@ def plot_crps_comparison(
     # Left plot: CRPS comparison
     axes[0].boxplot(
         [crps_model, crps_null],
-        labels=["spGDMM", "Null"],
+        tick_labels=["spGDMM", "Null"],
         widths=0.5,
         patch_artist=True,
         boxprops=dict(facecolor="steelblue", alpha=0.6),
@@ -200,7 +200,7 @@ def plot_crps_comparison(
     # Right plot: CRPS skill scores
     axes[1].boxplot(
         [crps_skill],
-        labels=["spGDMM"],
+        tick_labels=["spGDMM"],
         widths=0.5,
         patch_artist=True,
         boxprops=dict(facecolor="forestgreen", alpha=0.6),
@@ -243,8 +243,8 @@ def summarise_sampling(idata, var_names=None):
     if hasattr(idata, "sample_stats") and hasattr(idata.sample_stats, "diverging"):
         n_div = int(idata.sample_stats.diverging.values.sum())
 
-    n_chains = idata.posterior.dims.get("chain", 1)
-    n_draws = idata.posterior.dims.get("draw", 0)
+    n_chains = idata.posterior.sizes.get("chain", 1)
+    n_draws = idata.posterior.sizes.get("draw", 0)
     total = n_chains * n_draws
 
     print(f"Chains: {n_chains}  |  Draws/chain: {n_draws}  |  " f"Total draws: {total}  |  Divergences: {n_div}")
