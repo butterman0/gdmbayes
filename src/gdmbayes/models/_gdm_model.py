@@ -282,8 +282,11 @@ class GDMModel(BaseEstimator):
                     if i < pred_mesh.shape[0]:
                         knots_dict[pred] = pred_mesh[i]
                         if beta_median is not None:
-                            start, end = i * n_bases, (i + 1) * n_bases
-                            coefficients[pred] = beta_median[start:end].tolist()
+                            if beta_median.ndim == 2:
+                                coefficients[pred] = beta_median[i, :].tolist()
+                            else:
+                                start, end = i * n_bases, (i + 1) * n_bases
+                                coefficients[pred] = beta_median[start:end].tolist()
                         else:
                             coefficients[pred] = []
             dist_mesh = self._spgdmm.training_metadata.dist_mesh

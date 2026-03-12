@@ -1,112 +1,91 @@
 """
-Basic usage example for spGDMM.
+Basic usage example for gdmbayes.
 
-This example demonstrates how to fit a basic spGDMM model
-with environmental and spatial predictors.
+Demonstrates how to fit both the frequentist GDM and the Bayesian spGDMM
+with environmental and geographic predictors.
 """
 
 import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
-from spgdmm import spGDMM, ModelVariant, ModelConfig
 
-# -----------------------------------------------------
+from gdmbayes import GDM, spGDMM, ModelConfig, PreprocessorConfig, SamplerConfig, summarise_sampling
+
+# -----------------------------------------------------------------------
 # 1. Generate synthetic data
-# -----------------------------------------------------
+# -----------------------------------------------------------------------
 
-# Number of sample sites
-n_sites = 50
-
-# Generate random coordinates (simulating spatial locations)
 np.random.seed(42)
-xc = np.random.uniform(0, 100, n_sites)
-yc = np.random.uniform(0, 100, n_sites)
-time_idx = np.zeros(n_sites, dtype=int)
+n_sites = 30
 
-# Generate environmental predictors
-temp = np.random.uniform(5, 20, n_sites)  # Temperature
-salinity = np.random.uniform(30, 35, n_sites)  # Salinity
-depth = np.random.uniform(0, 200, n_sites)  # Depth
-
-# Create biomass matrix (simulating species abundances)
-n_species = 20
-biomass = np.random.exponential(1, (n_sites, n_species))
-
-# Compute pairwise Bray-Curtis dissimilarities
-from scipy.spatial.distance import pdist
-y = pdist(biomass, "braycurtis")
-y = np.clip(y, 1e-8, None)  # Avoid zeros for log transform
-
-# Create predictor DataFrame
 X = pd.DataFrame({
-    "xc": xc,
-    "yc": yc,
-    "time_idx": time_idx,
-    "temp": temp,
-    "salinity": salinity,
-    "depth": depth,
+    "xc": np.random.uniform(0, 100, n_sites),
+    "yc": np.random.uniform(0, 100, n_sites),
+    "time_idx": np.zeros(n_sites, dtype=int),
+    "temp": np.random.uniform(5, 20, n_sites),
+    "salinity": np.random.uniform(30, 35, n_sites),
+    "depth": np.random.uniform(0, 200, n_sites),
 })
 
-print(f"Number of sites: {n_sites}")
-print(f"Number of pairwise dissimilarities: {len(y)}")
-print(f"Dissimilarity range: [{y.min():.3f}, {y.max():.3f}]")
+biomass = np.random.exponential(1, (n_sites, 20))
+y = pdist(biomass, "braycurtis")
+y = np.clip(y, 1e-8, 1 - 1e-8)
 
-# -----------------------------------------------------
-# 2. Fit spGDMM model using pre-configured variant
-# -----------------------------------------------------
+print(f"Sites: {n_sites}  |  Pairs: {len(y)}  |  y range: [{y.min():.3f}, {y.max():.3f}]")
 
-print("\n" + "="*60)
-print("Fitting spGDMM model with MODEL1 (homogeneous variance, no spatial effects)")
-print("="*60)
+# -----------------------------------------------------------------------
+# 2. Frequentist GDM
+# -----------------------------------------------------------------------
 
-# Create model using pre-configured variant
-model = spGDMM.from_variant(
-    ModelVariant.MODEL1,
-    deg=3,
-    knots=2,
-    distance_measure="euclidean",
-    alpha_importance=True,
+print("\n" + "=" * 60)
+print("Frequentist GDM")
+print("=" * 60)
+
+gdm_model = GDM(geo=True)
+gdm_model.fit(X, y)
+
+print(f"Deviance explained: {gdm_model.explained_:.4f}")
+print(f"Predictor importance: {gdm_model.predictor_importance_}")
+print(f"Coefficients shape: {gdm_model.coef_.shape}")
+
+# Predict pairwise dissimilarities
+preds = gdm_model.predict(X)
+print(f"Prediction range: [{preds.min():.3f}, {preds.max():.3f}]")
+
+# -----------------------------------------------------------------------
+# 3. Bayesian spGDMM (minimal sampling for example speed)
+# -----------------------------------------------------------------------
+
+print("\n" + "=" * 60)
+print("Bayesian spGDMM")
+print("=" * 60)
+
+sampler_cfg = SamplerConfig(draws=100, tune=100, chains=2, nuts_sampler="pymc", progressbar=True)
+
+model = spGDMM(
+    preprocessor=PreprocessorConfig(deg=3, knots=2),
+    model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+    sampler_config=sampler_cfg,
 )
 
-# Fit the model with minimal sampling for this example
-idata = model.fit(
-    X,
-    y,
-    random_seed=42,
-    draws=100,  # Reduced for example
-    tune=100,   # Reduced for example
-    chains=2,   # Reduced for example
-    progressbar=True,
-)
+idata = model.fit(X, y, random_seed=42)
 
-print("\nModel fitting complete!")
 print(f"Posterior samples: {idata.posterior.dims}")
 print(f"Variables: {list(idata.posterior.data_vars.keys())}")
 
-# -----------------------------------------------------
-# 3. Examine results
-# -----------------------------------------------------
-
-# Check convergence
-from spgdmm import summarise_sampling
-print("\n" + "="*60)
-print("Sampling Diagnostics")
-print("="*60)
+# Sampling diagnostics
+print("\nSampling Diagnostics")
 diag = summarise_sampling(idata)
-
-# View parameter summaries
-print("\nParameter summaries:")
 print(diag.head(10))
 
-# -----------------------------------------------------
-# 4. Make predictions on new data
-# -----------------------------------------------------
+# -----------------------------------------------------------------------
+# 4. Predict on new data
+# -----------------------------------------------------------------------
 
-print("\n" + "="*60)
-print("Making predictions")
-print("="*60)
+print("\n" + "=" * 60)
+print("Predictions on new data")
+print("=" * 60)
 
-# New sites to predict
 n_pred = 10
 X_pred = pd.DataFrame({
     "xc": np.random.uniform(0, 100, n_pred),
@@ -117,20 +96,11 @@ X_pred = pd.DataFrame({
     "depth": np.random.uniform(0, 200, n_pred),
 })
 
-# Get predictive samples
-post_pred = model.predict_posterior(
-    X_pred,
-    extend_idata=False,
-    combined=True,
-)
+post_pred = model.predict_posterior(X_pred, extend_idata=False, combined=True)
+print(f"Posterior predictive shape: {post_pred.shape}")
 
-print(f"Posterior predictive samples shape: {post_pred.shape}")
-print(f"Mean predictions: {post_pred.mean(dim='sample').values}")
-print(f"Back-transformed ( Bray-Curtis): {np.exp(post_pred.mean(dim='sample').values)}")
-
-# Save the model
 # model.save("spgdmm_model.nc")
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("Example complete!")
-print("="*60)
+print("=" * 60)

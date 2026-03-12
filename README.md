@@ -1,178 +1,116 @@
-# spGDMM: Spatial Generalized Dissimilarity Mixed Model
+# gdmbayes: Generalised Dissimilarity Modelling in Python
 
-A Bayesian Python package for modeling ecological dissimilarities using spatial and environmental predictors with I-spline basis functions.
-
-**This package is being refactored to be more general and similar to the R GDM package.**
-The API is still evolving, and some features may change in future versions.
+A Python package for modelling ecological dissimilarities using spatial and
+environmental predictors with I-spline basis functions. Provides both a
+frequentist GDM estimator (sklearn-compatible) and a full Bayesian backend via
+PyMC/nutpie, and is the only Python GDM implementation.
 
 ## Features
 
-- **9 Model Variants**: Different combinations of variance structures and spatial random effects
-- **Modern Python API**: Type-safe enums and dataclasses for configuration
-- **I-spline Transformations**: Flexible non-linear modeling of predictor effects
+- **Frequentist GDM**: sklearn-compatible `GDM` class that implements the R GDM algorithm (NNLS on I-spline features)
+- **Bayesian GDM**: `spGDMM` / `GDMModel` for full posterior inference via PyMC
+- **I-spline Transformations**: Flexible non-linear modelling of predictor effects
 - **Spatial Effects**: Gaussian process-based spatial random effects
 - **Flexible Distance Calculation**: Euclidean, geodesic, and custom grid-based distances
-- **Bayesian Inference**: Built with PyMC for full posterior inference
-- **Scikit-learn Compatible**: Easy-to-use `fit()`/`predict()` API
-- **GDM Compatible**: Input/output format matching R GDM package
+- **Scikit-learn Compatible**: `fit()` / `predict()` API with `clone()`, `get_params()`, `set_params()`
+- **GDM Compatible**: Input/output format matching the R GDM package
 
-## Quick Start (GDM Compatible)
+## Quick Start
+
+### Frequentist GDM
 
 ```python
-from spgdmm import format_site_pair, BioFormat, gdm
+import numpy as np
 import pandas as pd
+from scipy.spatial.distance import pdist
+from gdmbayes import GDM
 
-# 1. Prepare biological data (long format)
-bio_data = pd.DataFrame({
-    "site": ["A", "A", "B", "B"],
-    "species": ["sp1", "sp2", "sp1", "sp2"],
-    "xCoord": [0.0, 0.0, 1.0, 1.0],
-    "yCoord": [0.0, 0.0, 1.0, 1.0],
-    "abundance": [10, 5, 8, 3]
+# Site-level data: xc, yc, time_idx, then environmental predictors
+X = pd.DataFrame({
+    "xc": [10.5, 11.2, 10.8, 12.0],
+    "yc": [60.1, 60.5, 59.9, 61.0],
+    "time_idx": [0, 0, 0, 0],
+    "temperature": [12.5, 13.1, 12.0, 14.2],
+    "salinity": [32.5, 33.0, 32.3, 33.5],
 })
 
-# 2. Prepare environmental data
-pred_data = pd.DataFrame({
-    "temp": {"A": 10.0, "B": 15.0},
-    "precip": {"A": 500.0, "B": 400.0}
-})
+biomass = np.random.exponential(1, (4, 10))
+y = pdist(biomass, "braycurtis")
 
-# 3. Create site-pair table (matches R's formatsitepair)
-site_pair = format_site_pair(
-    bio_data=bio_data,
-    bio_format=BioFormat.FORMAT2,
-    pred_data=pred_data,
-    x_column="xCoord",
-    y_column="yCoord",
-    species_column="species",
-    site_column="site",
-    abund_column="abundance"
-)
+model = GDM(geo=True)
+model.fit(X, y)
 
-# 4. Fit GDM model (matches R's gdm function)
-result = gdm(site_pair, geo=True, splines=3)
+print(f"Deviance explained: {model.explained_:.4f}")
+print(f"Predictor importance: {model.predictor_importance_}")
 
-# 5. Access results (same as R GDM)
-print(f"Deviance explained: {result.explained:.1f}%")
-print(f"Predictors: {result.predictors}")
+# Pairwise dissimilarity predictions
+preds = model.predict(X)   # values in [0, 1)
 ```
 
-## GDM Compatibility
+### Bayesian spGDMM
 
-**NEW**: spGDMM now includes a GDM-compatible interface that matches the R GDM package's input/output format:
+```python
+from gdmbayes import spGDMM, ModelConfig, PreprocessorConfig, SamplerConfig
 
-- `format_site_pair()` - Equivalent to R's `formatsitepair()`
-- `gdm()` - Equivalent to R's `gdm()`
-- `GDMModel` - Class-based interface with same API
-- `GDMResult` - Output object with same attributes as R GDM
+model = spGDMM(
+    preprocessor=PreprocessorConfig(deg=3, knots=2),
+    model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+    sampler_config=SamplerConfig(draws=1000, tune=1000, chains=4),
+)
 
-See [docs/GDM_COMPATIBILITY.md](docs/GDM_COMPATIBILITY.md) for full details.
+idata = model.fit(X, y, random_seed=42)
+
+# Point predictions (posterior mean)
+predictions = model.predict(X)
+```
+
+### Bayesian GDMModel (R-compatible output)
+
+```python
+from gdmbayes import GDMModel
+
+model = GDMModel(geo=True, splines=3)
+result = model.fit(X, y, dataname="my_survey")
+
+print(f"Deviance explained: {result.explained:.1f}%")
+print(f"Predictors: {result.predictors}")
+print(f"Coefficients: {result.coefficients}")
+```
 
 ## Installation
 
 ### From PyPI (when published)
 
 ```bash
-pip install spgdmm
+pip install gdmbayes
 ```
 
 ### Development Installation with Mamba
 
-Clone the repository and set up the development environment:
-
 ```bash
-cd spgdmm-package
+cd spgdmm
 
 # Create and activate the mamba environment
 mamba env create -f environment.yml
 mamba activate spgdmm
 
-# Or use the convenience script
-bash setup_env.sh
+# Install in editable mode
+pip install -e .
 ```
 
 The environment includes:
 - Python 3.10
-- PyMC, ArviZ, nutpie (Bayesian modeling)
-- NumPy, Pandas, SciPy, Xarray (Scientific computing)
-- scikit-learn, scikit-image (Machine learning)
+- PyMC, ArviZ, nutpie (Bayesian modelling)
+- NumPy, Pandas, SciPy, Xarray (scientific computing)
+- scikit-learn (machine learning utilities)
 - dms-variants (I-splines)
-- All other required dependencies
-
-## Quick Start
-
-```python
-from spgdmm import spGDMM, ModelVariant
-import pandas as pd
-from scipy.spatial.distance import pdist
-
-# Prepare your data
-# X: DataFrame with columns [xc, yc, time_idx, predictor1, predictor2, ...]
-# y: Pre-computed Bray-Curtis dissimilarities
-X = pd.DataFrame({
-    "xc": [10.5, 11.2, 10.8, ...],
-    "yc": [60.1, 60.5, 59.9, ...],
-    "time_idx": [0, 0, 0, ...],
-    "temperature": [12.5, 13.1, 12.0, ...],
-    "salinity": [32.5, 33.0, 32.3, ...],
-})
-biomass = [...]  # Your species abundance matrix
-y = pdist(biomass, "braycurtis")
-
-# Fit the model
-model = spGDMM.from_variant(ModelVariant.MODEL1, deg=3, knots=2)
-idata = model.fit(X, y, random_seed=42)
-
-# Make predictions
-X_pred = pd.DataFrame({
-    "xc": [10.7, 11.0],
-    "yc": [60.2, 60.4],
-    "time_idx": [0, 0],
-    "temperature": [12.8, 13.0],
-    "salinity": [32.7, 32.9],
-})
-predictions = model.predict_posterior(X_pred)
-```
-
-## Model Variants
-
-| Model | Variance Structure | Spatial Effects | Description |
-|-------|-------------------|-----------------|-------------|
-| MODEL1 | Homogeneous | None | Baseline model |
-| MODEL2 | Covariate-Dependent | None | Heteroscedastic |
-| MODEL3 | Polynomial | None | Non-linear variance |
-| MODEL4 | Homogeneous | Abs Diff | Basic spatial |
-| MODEL5 | Covariate-Dependent | Abs Diff | Spatial + heteroscedastic |
-| MODEL6 | Polynomial | Abs Diff | Complex spatial |
-| MODEL7 | Homogeneous | Squared Diff | Alternative spatial |
-| MODEL8 | Covariate-Dependent | Squared Diff | Alternative spatial + heteroscedastic |
-| MODEL9 | Polynomial | Squared Diff | Most complex spatial |
-
-Using pre-configured variants:
-
-```python
-from spgdmm import spGDMM, ModelVariant
-
-# Create model with absolute difference spatial effects
-model = spGDMM.from_variant(ModelVariant.MODEL4)
-```
-
-Or build custom configurations:
-
-```python
-from gdmbayes import spGDMM, ModelConfig, PreprocessorConfig
-
-model = spGDMM(
-    model_config=ModelConfig(variance="polynomial", spatial_effect="abs_diff"),
-    preprocessor_config=PreprocessorConfig(deg=4, knots=3),
-)
-```
 
 ## Configuration
 
 ### Model Configuration
 
-`ModelConfig` controls the Bayesian model structure only (variance and spatial effect). Preprocessing settings live in `PreprocessorConfig`.
+`ModelConfig` controls the Bayesian model structure (variance and spatial effect).
+Preprocessing settings live separately in `PreprocessorConfig`.
 
 ```python
 from gdmbayes import ModelConfig
@@ -218,12 +156,25 @@ sampler_config = SamplerConfig(
     random_seed=42,          # Random seed for reproducibility
 )
 
-model = spGDMM(sampler_config=sampler_config.to_dict())
+model = spGDMM(sampler_config=sampler_config)
 ```
+
+## Variance and Spatial Effect Options
+
+| String value | Description |
+|---|---|
+| `"homogeneous"` | Constant variance across all predictions |
+| `"covariate_dependent"` | Variance depends on pairwise distance |
+| `"polynomial"` | Polynomial variance as function of mean |
+| `"none"` | No spatial random effects (spatial_effect only) |
+| `"abs_diff"` | Absolute difference in GP latent values |
+| `"squared_diff"` | Squared difference in GP latent values |
 
 ## Custom Variance and Spatial Functions
 
-Both `variance` and `spatial_effect` in `ModelConfig` accept a callable in addition to the built-in string options. Callables are executed inside a PyMC model context, so you can define new priors directly.
+Both `variance` and `spatial_effect` in `ModelConfig` accept a callable in
+addition to the built-in string options. Callables are executed inside a PyMC
+model context, so you can define new priors directly.
 
 ### Custom variance
 
@@ -276,7 +227,7 @@ print(list(SPATIAL_FUNCTIONS))    # ['abs_diff', 'squared_diff']
 ## Plotting and Diagnostics
 
 ```python
-from spgdmm import plot_isplines, plot_crps_comparison, summarise_sampling, plot_ppc
+from gdmbayes import plot_isplines, plot_crps_comparison, summarise_sampling, plot_ppc
 
 # Check sampling diagnostics
 diagnostics = summarise_sampling(idata)
@@ -293,15 +244,14 @@ plot_crps_comparison(y_test, predictions, y_train)
 
 ## Distance Calculation
 
-The package provides flexible distance calculation utilities:
-
 ```python
-from spgdmm import (
+from gdmbayes import (
     DistanceCalculator,
     compute_distance_matrix,
     euclidean_distance,
     geodesic_distance,
 )
+import numpy as np
 
 # Euclidean (straight-line) distance
 coords = [[0, 0], [3, 0], [0, 4]]
@@ -313,27 +263,30 @@ distances = geodesic_distance(np.array(locations))
 
 # Custom distance calculator
 calc = DistanceCalculator(metric="euclidean")
-distances = calc.compute(locations)
+distances = calc.compute(np.array(locations))
 ```
 
 ## API Reference
 
 ### Core Classes
 
-- `spGDMM`: Main model class
-- `ModelVariant`: Enum of pre-configured model variants
-- `ModelConfig`: Dataclass for model configuration
-- `SamplerConfig`: Dataclass for sampler configuration
-- `VarianceType`: Enum for variance structure types
-- `SpatialEffectType`: Enum for spatial effect types
+- `GDM`: Frequentist sklearn-compatible GDM estimator
+- `spGDMM`: Bayesian GDM estimator (PyMC)
+- `GDMModel`: Bayesian GDM wrapper returning `GDMResult` (R-compatible)
+- `GDMResult`: Output dataclass matching R GDM output attributes
+- `ModelConfig`: Dataclass for Bayesian model structure configuration
+- `PreprocessorConfig`: Dataclass for I-spline and distance settings
+- `SamplerConfig`: Dataclass for MCMC sampler settings
 
 ### Main Methods
 
-- `spGDMM.fit(X, y)`: Fit the model
-- `spGDMM.predict(X)`: Point predictions
-- `spGDMM.predict_posterior(X)`: Full posterior predictive samples
-- `spGDMM.save(fname)`: Save model to file
-- `spGDMM.load(fname)`: Load model from file
+- `GDM.fit(X, y)`: Fit frequentist model; returns `self`
+- `GDM.predict(X)`: Pairwise dissimilarity predictions in `[0, 1)`
+- `spGDMM.fit(X, y)`: Fit Bayesian model; returns `self`
+- `spGDMM.predict(X)`: Posterior mean predictions (log scale)
+- `spGDMM.save(fname)` / `spGDMM.load(fname)`: Serialise/restore model
+- `GDMModel.fit(X, y)`: Fit Bayesian model; returns `GDMResult`
+- `GDMModel.predict(X)`: Predicted pairwise dissimilarities in `[0, 1)`
 
 ### Plotting Functions
 
@@ -347,37 +300,32 @@ distances = calc.compute(locations)
 ### Running Tests
 
 ```bash
-mamba activate spgdmm
-pytest tests/
+pytest src/gdmbayes/tests/ -v
+pytest src/gdmbayes/tests/ --cov=src/gdmbayes
 ```
 
 ### Running Examples
 
 ```bash
-mamba activate spgdmm
 python examples/basic_usage.py
 python examples/model_variants.py
-python examples/gdm_compatible_example.py  # GDM-compatible interface
 ```
 
-### Code Formatting
+### Code Quality
 
 ```bash
-# Install dev tools
-mamba install -c conda-forge ruff mypy pytest
-
-# Format code
+# Lint and auto-fix
 ruff check src/ --fix
 
 # Type check
-mypy src/spgdmm/
+mypy src/gdmbayes/
 ```
 
 ## Citation
 
 ```bibtex
-@software{spgdmm2025,
-  title = {spGDMM: Spatial Generalized Dissimilarity Mixed Model},
+@software{gdmbayes2025,
+  title = {gdmbayes: Bayesian and Frequentist Generalised Dissimilarity Modelling in Python},
   author = {Horsley, Harold},
   year = {2025},
   url = {https://github.com/harryhorsley9/spgdmm}
