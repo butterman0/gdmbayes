@@ -7,7 +7,7 @@
 \usepackage{alltt}
 \usepackage[anticlockwise,figuresright]{rotating}
 \usepackage{boites}%
-\usepackage{boites_exemples}%
+%\usepackage{boites_exemples}% requires pstricks — not needed for articles%
 %\usepackage{pstricks}
 \usepackage{wrapfig}
 \usepackage{epstopdf}%
@@ -16,7 +16,7 @@
 %\DeclareOption{number}{\xdef\@biboptions{numbers}}%
 %\DeclareOption{numbers}{\xdef\@biboptions{numbers}}%
 
-\bibliographystyle{plainnat}% this can be used both for numerical and authoryear citations.
+%\bibliographystyle{plainnat}% moved to manuscript.tex backmatter% this can be used both for numerical and authoryear citations.
 
 \newdimen\hsizevalue%
 \newdimen\vsizevalue%
@@ -92,7 +92,7 @@
 
 \usepackage[breaklinks]{hyperref}%
 \hypersetup{colorlinks=false,linkbordercolor=white,pdfborder={0 0 0},citebordercolor=white,bookmarksopen=false}%
-\usepackage{breakurl}%
+%\usepackage{breakurl}% PostScript-only, not compatible with pdflatex%
 \urlstyle{same}%
 
 \@ifpackageloaded{enumerate}{%
