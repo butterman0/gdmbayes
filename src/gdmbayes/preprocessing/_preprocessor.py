@@ -341,7 +341,8 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         distance_measure = cfg.distance_measure
 
         if distance_measure == "geodesic":
-            return pdist(location_values, lambda u, v: geodesic(u, v).kilometers)
+            # location_values columns are [xc, yc] = [lon, lat]; geopy geodesic expects (lat, lon)
+            return pdist(location_values, lambda u, v: geodesic((u[1], u[0]), (v[1], v[0])).kilometers)
         elif distance_measure == "euclidean":
             return pdist(location_values, metric="euclidean") / 1000.0
         else:

@@ -95,3 +95,17 @@ trained_models/
 # Claude Code
 .claude/
 CLAUDE.md
+# Paper build artifacts
+paper/*.blg
+paper/*.log
+paper/*.pdf
+paper/*.synctex.gz
+
+# Example results
+examples/results/
+
+# Large reference PDFs
+papers/*.pdf
+
+# Large BC matrix (redundant - can be recomputed)
+examples/data/southwest_bc_matrix.csv

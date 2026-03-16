@@ -92,7 +92,7 @@ class GDM(BaseEstimator, RegressorMixin):
     def __sklearn_is_fitted__(self):
         return hasattr(self, "coef_")
 
-    def fit(self, X: pd.DataFrame, y: np.ndarray) -> "GDM":
+    def fit(self, X: pd.DataFrame, y: np.ndarray, pair_subset=None) -> "GDM":
         """Fit the GDM.
 
         Parameters
@@ -102,6 +102,10 @@ class GDM(BaseEstimator, RegressorMixin):
         y : ndarray of shape (n_pairs,)
             Condensed pairwise dissimilarities in (0, 1). Length must equal
             n_sites * (n_sites - 1) / 2.
+        pair_subset : array-like of int or None, default None
+            Indices into the condensed pair vector to use for NNLS fitting.
+            The preprocessor is always fitted on all sites; only the NNLS
+            step uses the subset.  Useful for cross-validation.
 
         Returns
         -------
@@ -114,28 +118,78 @@ class GDM(BaseEstimator, RegressorMixin):
         self.n_features_in_ = X.shape[1]
         self.feature_names_in_ = np.array(X.columns)
 
-        # Fit preprocessor
+        # Fit preprocessor on all sites
         self.preprocessor_ = self._build_preprocessor()
         self.preprocessor_.fit(X)
 
-        # Build GDM feature matrix
+        # Build GDM feature matrix (all pairs)
         X_gdm = self._get_X_gdm(X)
 
-        # Apply link: g = -log(1 - y)  (inverse cloglog)
-        y_clipped = np.clip(y, 1e-10, 1 - 1e-10)
-        g = -np.log1p(-y_clipped)
+        # Optionally restrict to a subset of pairs for NNLS
+        if pair_subset is not None:
+            pair_subset = np.asarray(pair_subset)
+            X_gdm_fit = X_gdm[pair_subset]
+            y_fit = y[pair_subset]
+        else:
+            X_gdm_fit = X_gdm
+            y_fit = y
 
-        # Non-negative least squares
-        coef, _ = nnls(X_gdm, g)
+        # Iteratively reweighted NNLS matching the R gdm C algorithm.
+        # Ref: Gdmlib.cpp / NNLS_Double.cpp in gdm CRAN source.
+        #
+        # Unit weights (w=1) for all pairs.  Jeffreys-smoothed initial estimate:
+        #   eta = -log(1 - (y + 0.5) / 2)
+        # avoids eta -> inf when y == 1 and gives a proper GLM starting point.
+        # Each iteration fits weighted NNLS with IRLS working response and weights
+        # derived from the cloglog link and binomial variance V(mu) = mu(1-mu).
+        w = np.ones(len(y_fit))
+        eta = -np.log1p(-((y_fit * w + 0.5) / (w + 1.0)))
+
+        coef = np.zeros(X_gdm_fit.shape[1])
+        eps = 1e-8
+        max_iter = 100
+        prev_dev = np.inf
+        for _ in range(max_iter):
+            mu = 1.0 - np.exp(-eta)
+            mu = np.clip(mu, eps, 1 - eps)
+            irls_w = np.sqrt(w * (1.0 - mu) / mu)      # sqrt of IRLS weight
+            z = eta + (y_fit - mu) / (1.0 - mu)         # working response
+            # Weighted NNLS: min ||diag(irls_w) @ (X @ coef - z)||^2
+            coef, _ = nnls(X_gdm_fit * irls_w[:, None], z * irls_w)
+            eta = X_gdm_fit @ coef
+            # Binomial deviance
+            mu2 = 1.0 - np.exp(-eta)
+            mu2 = np.clip(mu2, eps, 1 - eps)
+            dev = -2.0 * np.sum(
+                y_fit * np.log(mu2 / (y_fit + eps))
+                + (1 - y_fit) * np.log((1 - mu2) / (1 - y_fit + eps))
+            )
+            if np.isfinite(prev_dev) and abs(prev_dev - dev) / (abs(prev_dev) + eps) < eps:
+                break
+            prev_dev = dev
         self.coef_ = coef
 
-        # Deviances (SS on link scale)
-        g_hat = X_gdm @ coef
-        g_mean = np.mean(g)
-        self.null_deviance_ = float(np.sum((g - g_mean) ** 2))
-        self.model_deviance_ = float(np.sum((g - g_hat) ** 2))
-        if self.null_deviance_ > 0:
-            self.explained_ = float(1.0 - self.model_deviance_ / self.null_deviance_)
+        # Deviances using the R gdm CalcGDMDevianceDouble formula:
+        # D = 2 * sum(y*log(y/mu) + (1-y)*log((1-y)/(1-mu)))
+        # Null model: mu_null is the intercept-only IRLS solution = mean(y).
+        def _gdm_deviance(y_vals, mu_vals):
+            eps_ = 1e-8
+            mu_v = np.clip(mu_vals, eps_, 1 - eps_)
+            t1 = np.where(y_vals == 0, 0.0, y_vals * np.log(np.clip(y_vals, eps_, 1) / mu_v))
+            t2 = np.where(y_vals == 1, 0.0,
+                          (1 - y_vals) * np.log(np.clip(1 - y_vals, eps_, 1) / (1 - mu_v)))
+            return 2.0 * np.sum(t1 + t2)
+
+        mu_fit = np.clip(1.0 - np.exp(-(X_gdm_fit @ coef)), 1e-8, 1 - 1e-8)
+        # Null model intercept-only IRLS (converges to mean of cloglog-predicted y)
+        mu_null_val = np.clip(np.mean(y_fit), 1e-8, 1 - 1e-8)
+        mu_null = np.full_like(y_fit, mu_null_val)
+        null_dev = _gdm_deviance(y_fit, mu_null)
+        model_dev = _gdm_deviance(y_fit, mu_fit)
+        self.null_deviance_ = float(null_dev)
+        self.model_deviance_ = float(model_dev)
+        if null_dev > 0:
+            self.explained_ = float(1.0 - model_dev / null_dev)
         else:
             self.explained_ = 0.0
 
