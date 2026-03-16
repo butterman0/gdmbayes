@@ -1,26 +1,43 @@
 %% Methods in Ecology and Evolution — Application Paper
-%% Run LaTeX on this file several times to get cross-references and citations.
+%% Author submission format following Wiley NJD conventions.
+%% The WileyDesign production template (USG.cls) is for post-acceptance
+%% typesetting by Wiley; this file uses standard article class for submission.
+%%
+%% Compile: tectonic manuscript.tex
 
-\documentclass[11pt]{book}
-\usepackage{Wiley-AuthoringTemplate}
-\usepackage[authoryear]{natbib}
+\documentclass[12pt,a4paper]{article}
 
-%%--------------------------------------------------------------------
-%% Section numbering depth
-\setcounter{secnumdepth}{3}
-
-%%--------------------------------------------------------------------
-%% Additional packages not in the Wiley template
+% ---- Core packages ----------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{setspace}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
-\usepackage{listings}
-\usepackage{xcolor}
-\usepackage{caption}
 \usepackage{microtype}
-\hypersetup{colorlinks=true,linkcolor=blue!60!black,citecolor=blue!60!black,urlcolor=blue!60!black}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage[authoryear,round,sort]{natbib}
+\usepackage{hyperref}
+\usepackage{authblk}       % multi-author/affiliation blocks
 
-%%--------------------------------------------------------------------
-%% Code listing style
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+% ---- NJD-convention stubs (match production template field names) ------------
+\newcommand{\articletype}[1]{%
+  \begin{center}\small\textsc{#1}\end{center}\vspace{-0.5em}}
+\newcommand{\corres}[1]{%
+  \par\noindent\footnotesize\textbf{Correspondence:} #1\par}
+\newcommand{\fundinginfo}[1]{%
+  \section*{Funding Information}#1}
+
+% ---- Code listing style -----------------------------------------------------
 \lstset{
   basicstyle=\ttfamily\small,
   backgroundcolor=\color{gray!8},
@@ -39,31 +56,26 @@
 \lstdefinestyle{python}{language=Python}
 \lstdefinestyle{bash}{language=bash}
 
+% ---- Title block ------------------------------------------------------------
+\title{\textbf{gdmbayes}: A Python Package for Bayesian Generalised
+       Dissimilarity Modelling}
+
+\author[1]{Harold Horsley}
+\affil[1]{[Department], [Institution], [City], [Country]}
+\date{}
+
 % =============================================================================
 \begin{document}
 
-\mainmatter
-
-% =============================================================================
-\chapter[\textbf{gdmbayes}: A Python Package for Bayesian Generalised
-         Dissimilarity Modelling]%
-        {\textbf{gdmbayes}: A Python Package for Bayesian Generalised
-         Dissimilarity Modelling}
-
-\author*[1]{Harold Horsley}
-
-\address[1]{\orgdiv{[Department]},
-\orgname{[Institution]},
-\postcode{[Postcode]},
-\city{[City]},
-\country{[Country]}}
-
-\address*{Corresponding Author: Harold Horsley; \email{[email]}}
-
 \maketitle
+\articletype{APPLICATION}
+\corres{Harold Horsley (\texttt{[email]})}
+
+\doublespacing
 
 % ---- Abstract ---------------------------------------------------------------
-\begin{abstract}{Abstract}
+\begin{abstract}
+\noindent
 Generalised dissimilarity modelling (GDM) is a widely used framework for
 relating pairwise ecological dissimilarities between sites to environmental
 and spatial predictors using non-linear I-spline basis functions. Despite its
@@ -89,12 +101,15 @@ random effects. The package is freely available at
 \url{https://github.com/harryhorsley9/spgdmm} under the Apache~2.0 licence.
 \end{abstract}
 
-\keywords{Bayesian inference; beta diversity; compositional turnover; ecological
-  dissimilarity; generalised dissimilarity modelling; Gaussian process;
-  Python; scikit-learn; species distribution modelling}
+\noindent\textbf{Keywords:} Bayesian inference | beta diversity |
+compositional turnover | ecological dissimilarity |
+generalised dissimilarity modelling | Gaussian process |
+Python | scikit-learn
+
+\clearpage
 
 % ---- 1. Introduction --------------------------------------------------------
-\section{Introduction}
+\section{Introduction}\label{sec:intro}
 
 Ecologists increasingly rely on large spatially referenced datasets to
 understand how species composition changes across landscapes. Generalised
@@ -113,36 +128,38 @@ GDM has been applied to beta-diversity gradients, conservation planning
 \citep{fitzpatrick2013}, and spatial prioritisation of biodiversity surveys.
 The R package \textbf{gdm} \citep{fitzpatrick2021} has been the reference
 implementation for nearly two decades, providing a point-estimate frequentist
-estimator via non-negative least squares (NNLS). Two important limitations have
-persisted. First, no Python implementation exists, which limits integration
-with the scientific Python ecosystem and with machine-learning pipelines built
-around scikit-learn. Second, neither the R package nor any other tool provides
-uncertainty estimates for GDM coefficients or predictions, making it impossible
-to propagate ecological uncertainty through downstream analyses.
+estimator via non-negative least squares (NNLS). Two important limitations
+have persisted. First, no Python implementation exists, which limits
+integration with the scientific Python ecosystem and machine-learning pipelines
+built around scikit-learn. Second, neither the R package nor any other tool
+provides uncertainty estimates for GDM coefficients or predictions, making it
+impossible to propagate ecological uncertainty through downstream analyses such
+as conservation prioritisation or climate projection.
 
 Several Bayesian extensions of GDM have been proposed. \citet{woolley2017}
 introduced BBGDM, which replaces NNLS with Bayesian bootstrap resampling; this
 provides interval estimates but is not proper Bayesian inference (no likelihood
-or priors). \citet{lusiana2023} derived a fully Bayesian GDM using
-Hamiltonian Monte Carlo in \textbf{rstan} with a binomial likelihood and logit
-link, but provide no reusable software package. Most recently, \citet{white2024}
+or priors). \citet{lusiana2023} derived a fully Bayesian GDM using Hamiltonian
+Monte Carlo in \textbf{rstan} with a binomial likelihood and logit link, but
+provide no reusable software package. Most recently, \citet{white2024}
 introduced the spatial GDM mixed model (spGDMM), a hierarchical Bayesian
 formulation with a censored-normal (Tobit) likelihood, Gaussian process spatial
 random effects, and 10-fold cross-validation model selection, implemented in
-NIMBLE for R. This provides the strongest statistical foundation to date but
-remains inaccessible to Python users.
+NIMBLE for R\@. This provides the strongest statistical foundation to date but
+remains inaccessible to Python users and is not distributed as a standalone
+package.
 
-Here we present \textbf{gdmbayes}, a Python package that provides (i)~a
-frequentist GDM estimator replicating the R \textbf{gdm} algorithm and fully
-compatible with the scikit-learn API \citep{pedregosa2011}, and (ii)~a
-Bayesian GDM estimator implementing the spGDMM model of \citet{white2024}
-using PyMC \citep{salvatier2016} and ArviZ \citep{kumar2019} for MCMC
-sampling and posterior diagnostics. Both estimators share a common
-preprocessing layer that handles I-spline mesh construction, pairwise distance
-computation, and feature matrix assembly.
+Here we present \textbf{gdmbayes}, a Python package that provides
+(i)~a frequentist GDM estimator replicating the R \textbf{gdm} algorithm and
+fully compatible with the scikit-learn API \citep{pedregosa2011}, and
+(ii)~a Bayesian GDM estimator implementing the spGDMM model of
+\citet{white2024} using PyMC \citep{salvatier2016} and ArviZ
+\citep{kumar2019} for MCMC sampling and posterior diagnostics. Both estimators
+share a common preprocessing layer that handles I-spline mesh construction,
+pairwise distance computation, and feature matrix assembly.
 
 % ---- 2. Package Description -------------------------------------------------
-\section{Package Description}
+\section{Package Description}\label{sec:package}
 
 \subsection{Overview and Installation}
 
@@ -151,14 +168,12 @@ computation, and feature matrix assembly.
 component (\texttt{GDMPreprocessor}). All classes follow the scikit-learn
 \texttt{fit(X,~y)} / \texttt{predict(X)} API.
 
-Installation via pip:
-
 \begin{lstlisting}[style=bash]
 pip install gdmbayes
 \end{lstlisting}
 
-Dependencies include PyMC~$\geq$~5.0, ArviZ, nutpie, NumPy, pandas, SciPy,
-xarray, and scikit-learn. A conda environment file is provided for
+\noindent Dependencies include PyMC~$\geq$~5.0, ArviZ, nutpie, NumPy, pandas,
+SciPy, xarray, and scikit-learn. A conda environment file is provided for
 reproducibility.
 
 \subsection{Preprocessing}
@@ -172,26 +187,22 @@ arrays) for use at prediction time.
 \paragraph{I-spline basis functions.}
 For each environmental predictor $x$, the preprocessor constructs
 $J = \texttt{deg} + \texttt{knots}$ I-spline basis functions
-$I_1(x), \ldots, I_J(x)$ over a mesh of evenly spaced or percentile-based knot
-positions. I-splines are the integral of M-splines and are monotone
-non-decreasing by construction \citep{ramsay1988}, ensuring predicted
+$I_1(x), \ldots, I_J(x)$ over a mesh of percentile-based or evenly spaced
+knot positions. I-splines are the integral of M-splines and are monotone
+non-decreasing by construction \citep{ramsay1988}, ensuring that predicted
 dissimilarity increases monotonically with environmental distance. The pairwise
 feature for predictor $k$ between sites $i$ and $j$ is:
-
 \begin{equation}
   f_{k,\ell}(i,j) = \bigl|I_\ell(x_{k,i}) - I_\ell(x_{k,j})\bigr|,
   \quad \ell = 1, \ldots, J.
   \label{eq:ispline-feature}
 \end{equation}
 
-Geographic distance is optionally included as an additional predictor using the
-same I-spline transformation applied to pairwise Euclidean, geodesic, or
-grid-based ocean distances. Preprocessing is configured via
-\texttt{PreprocessorConfig}:
-
+Geographic distance is optionally included using the same I-spline
+transformation applied to pairwise Euclidean, geodesic, or grid-based ocean
+distances. Preprocessing is configured via \texttt{PreprocessorConfig}:
 \begin{lstlisting}[style=python]
 from gdmbayes import PreprocessorConfig
-
 cfg = PreprocessorConfig(
     deg=3,                       # I-spline polynomial degree
     knots=2,                     # number of internal knots
@@ -200,257 +211,190 @@ cfg = PreprocessorConfig(
 )
 \end{lstlisting}
 
-\subsection{Frequentist GDM}
-\label{sec:frequentist}
+\subsection{Frequentist GDM}\label{sec:freq}
 
-\texttt{GDM} implements the standard GDM algorithm from \citet{ferrier2007} as
-a scikit-learn estimator. Given the pairwise I-spline feature matrix
-$\mathbf{X}_{\mathrm{GDM}} \in \mathbb{R}^{P \times Q}$ ($P$ site pairs, $Q$
-I-spline columns), fitting proceeds by iteratively reweighted NNLS (matching
-the C implementation in the R \textbf{gdm} package):
-
+\texttt{GDM} implements the standard GDM algorithm from \citet{ferrier2007}
+as a scikit-learn estimator. Given the pairwise I-spline feature matrix
+$\mathbf{X}_{\mathrm{GDM}} \in \mathbb{R}^{P \times Q}$ ($P$ site pairs,
+$Q$ I-spline columns), fitting proceeds by iteratively reweighted NNLS
+(IRNNLS), matching the C implementation in the R \textbf{gdm} package:
 \begin{equation}
   \min_{\boldsymbol{\beta} \geq 0}
-  \bigl\| \mathbf{W}^{1/2}(g(\mathbf{y}) - \mathbf{X}_{\mathrm{GDM}}\boldsymbol{\beta}) \bigr\|^2,
+  \bigl\|\mathbf{W}^{1/2}
+  \bigl(g(\mathbf{y}) - \mathbf{X}_{\mathrm{GDM}}\boldsymbol{\beta}\bigr)
+  \bigr\|^2,
   \label{eq:nnls}
 \end{equation}
-
 where $g(y) = -\log(1-y)$ is the complementary log-log link and $\mathbf{W}$
 is the diagonal matrix of IRLS weights derived from the binomial variance
-function $V(\mu) = \mu(1-\mu)$. Jeffreys smoothing initialises $\eta$ to
-avoid divergence when $y = 1$. Predicted dissimilarities are recovered via:
-
-\begin{equation}
-  \hat{y} = 1 - \exp\!\bigl(-\mathbf{X}_{\mathrm{GDM}}\hat{\boldsymbol{\beta}}\bigr).
-  \label{eq:inverse-link}
-\end{equation}
-
+$V(\mu) = \mu(1-\mu)$. Jeffreys smoothing initialises $\eta$ to avoid
+divergence at $y = 1$. Predicted dissimilarities are recovered via the inverse
+link $\hat{y} = 1 - \exp(-\mathbf{X}_{\mathrm{GDM}}\hat{\boldsymbol{\beta}})$.
 Predictor importance is the sum of NNLS coefficients over all I-spline basis
-functions per predictor, analogous to the R \textbf{gdm} package.
+functions per predictor.
 
 \begin{lstlisting}[style=python]
 from gdmbayes import GDM
-
 model = GDM(geo=True, splines=3, knots=2)
 model.fit(X, y)
 print(f"Deviance explained: {model.explained_:.4f}")
 predictions = model.predict(X_new)
 \end{lstlisting}
 
-\subsection{Bayesian GDM (\texttt{spGDMM})}
-\label{sec:bayesian}
+\subsection{Bayesian GDM (\texttt{spGDMM})}\label{sec:bayes}
 
 \texttt{spGDMM} extends the frequentist GDM with full Bayesian inference via
 PyMC, implementing the spGDMM model of \citet{white2024}. The response is
-modelled on the log scale with upper censoring at $y = 1$ (the Tobit
-formulation):
-
+modelled on the log scale with upper censoring at $y = 1$ (Tobit formulation):
 \begin{equation}
-  \log(y_{ij}) \sim \mathrm{CensoredNormal}\!\left(\mu_{ij},\;
-  \sigma^2_{ij},\; \text{upper} = 0\right).
+  \log(y_{ij}) \sim
+  \mathrm{CensoredNormal}\!\left(\mu_{ij},\;\sigma^2_{ij},\;\text{upper}=0\right).
   \label{eq:likelihood}
 \end{equation}
 
 \paragraph{Linear predictor.}
 With the \texttt{alpha\_importance} option, the linear predictor for site pair
-$(i, j)$ is:
-
+$(i,j)$ is:
 \begin{equation}
   \mu_{ij} = \beta_0
   + \sum_{k=1}^{K} \alpha_k \sum_{\ell=1}^{J} \beta_{k,\ell}\, f_{k,\ell}(i,j)
   + \eta_{ij},
   \label{eq:linear-predictor}
 \end{equation}
-
-where $\beta_0 \sim \mathcal{N}(0, 10)$; the normalised I-spline coefficients
-$\boldsymbol{\beta}_k \sim \mathrm{Dirichlet}(\mathbf{1})$ ensure
-$\sum_\ell \beta_{k,\ell} = 1$; and per-predictor importance weights
-$\alpha_k \sim \mathrm{HalfNormal}(1)$ capture total magnitude. The term
-$\eta_{ij}$ is the optional spatial random effect (Section~\ref{sec:spatial}).
+where $\beta_0 \sim \mathcal{N}(0, 10)$; normalised I-spline coefficients
+$\boldsymbol{\beta}_k \sim \mathrm{Dirichlet}(\mathbf{1})$ satisfy
+$\sum_\ell \beta_{k,\ell} = 1$; per-predictor importance weights
+$\alpha_k \sim \mathrm{HalfNormal}(1)$ capture total predictor magnitude; and
+$\eta_{ij}$ is the optional spatial random effect.
 
 \paragraph{Spatial random effects.}
-\label{sec:spatial}
-An optional Gaussian process prior models spatial autocorrelation:
-
+An optional GP prior models spatial autocorrelation:
 \begin{equation}
-  \boldsymbol{\psi} \sim \mathcal{GP}\!\left(0,\;
-  \sigma^2_\psi \cdot \mathrm{Exp}\!\left(\|\cdot\| / \ell\right)\right),
+  \boldsymbol{\psi} \sim
+  \mathcal{GP}\!\left(0,\;\sigma^2_\psi \cdot
+  \exp\!\left(-\|\cdot\| / \ell\right)\right),
   \label{eq:gp-prior}
 \end{equation}
-
-placed on the $n$ training sites. The pairwise spatial contrast
-$\eta_{ij} = |\psi_i - \psi_j|$ or $(\psi_i - \psi_j)^2$ is added to
-$\mu_{ij}$. The length scale $\ell$ is set to half the median inter-site
-distance; $\sigma^2_\psi \sim \mathrm{InverseGamma}(1,1)$.
+placed on the $n$ training sites, with $\sigma^2_\psi \sim
+\mathrm{InverseGamma}(1,1)$ and length scale $\ell$ set to half the median
+inter-site distance. The pairwise contrast $\eta_{ij} = |\psi_i - \psi_j|$
+or $(\psi_i - \psi_j)^2$ is added to $\mu_{ij}$.
 
 \paragraph{Sampler.}
 MCMC uses the No-U-Turn Sampler \citep[NUTS;][]{hoffman2014} via PyMC, with
-nutpie as the default backend. Sampler settings are controlled via
-\texttt{SamplerConfig}:
+nutpie as the default backend. Results are stored as an ArviZ
+\texttt{InferenceData} object; fitted models serialise as NetCDF files via
+\texttt{model.save(fname)}.
 
 \begin{lstlisting}[style=python]
 from gdmbayes import spGDMM, ModelConfig, PreprocessorConfig, SamplerConfig
-
 model = spGDMM(
-    preprocessor=PreprocessorConfig(deg=3, knots=2, distance_measure="geodesic"),
-    model_config=ModelConfig(variance="homogeneous", spatial_effect="abs_diff"),
-    sampler_config=SamplerConfig(draws=1000, tune=1000, chains=4, random_seed=42),
+    preprocessor=PreprocessorConfig(deg=3, knots=2,
+                                    distance_measure="geodesic"),
+    model_config=ModelConfig(variance="homogeneous",
+                             spatial_effect="abs_diff"),
+    sampler_config=SamplerConfig(draws=1000, tune=1000,
+                                 chains=4, random_seed=42),
 )
 idata = model.fit(X, y)
 \end{lstlisting}
 
-Results are stored as an ArviZ \texttt{InferenceData} object, enabling the
-full ArviZ diagnostic toolkit (R-hat, effective sample size, posterior
-predictive checks). Fitted models are serialised as NetCDF files via
-\texttt{model.save(fname)} for prediction on new data after deserialisation.
-
-% ---- 3. Running Example -----------------------------------------------------
-\section{Running Example: Southwest Australia Plant Diversity}
+% ---- 3. Running Example ------------------------------------------------------
+\section{Running Example: Southwest Australia Plant Diversity}\label{sec:example}
 
 We demonstrate \textbf{gdmbayes} on the canonical southwest Australia dataset
-from the R \textbf{gdm} package, the same dataset used in \citet{white2024}
-Table~1. This dataset comprises 94 sites with occurrence data for 856 plant
-species and 10 environmental predictors \citep{fitzpatrick2013}, with
-Bray--Curtis dissimilarities ($n = 4{,}371$ site pairs). We compare against
-published benchmarks from the Ferrier et al. (R \textbf{gdm}) and spGDMM
-models in \citet{white2024} Table~1.
+from the R \textbf{gdm} package \citep{fitzpatrick2021}, the same dataset used
+in \citet{white2024} Table~1. This dataset comprises 94 sites with occurrence
+data for 856 plant species and 10 environmental predictors
+\citep{fitzpatrick2013}, with Bray--Curtis dissimilarities computed from the
+community matrix ($n = 4{,}371$ site pairs, $y \in [0.33, 1.00]$, 138 pairs
+at $y = 1$).
 
-\subsection{Frequentist GDM}
-
-\begin{lstlisting}[style=python]
-import pandas as pd
-from gdmbayes import GDM, PreprocessorConfig
-
-sites = pd.read_csv("data/southwest_sites.csv")
-y = pd.read_csv("data/southwest_y.csv")["y"].values
-
-X = sites.rename(columns={"Long": "xc", "Lat": "yc"}).copy()
-X["time_idx"] = 0
-X = X[["xc", "yc", "time_idx"] + ENV_PREDICTORS]
-
-model = GDM(
-    geo=True,
-    preprocessor_config=PreprocessorConfig(
-        deg=3, knots=2, mesh_choice="percentile", distance_measure="geodesic"
-    ),
-)
-model.fit(X, y)
-print(f"Deviance explained: {model.explained_:.4f}")
-\end{lstlisting}
-
-Table~\ref{tab:benchmark} shows predictive performance under 10-fold
-cross-validation on site pairs (the methodology of \citealt{white2024}):
-fitting the preprocessor on all 94 sites and the NNLS step on training pairs
-only, then predicting withheld pairs. \textbf{gdmbayes} \texttt{GDM} achieves
-RMSE~=~0.064 and MAE~=~0.042, outperforming the R \textbf{gdm} benchmark
-(RMSE~=~0.074, MAE~=~0.055; \citealt{white2024}).
+Table~\ref{tab:benchmark} reports predictive performance under 10-fold
+cross-validation on site pairs, following the methodology of
+\citet{white2024}: the preprocessor is fitted on all 94 sites and NNLS is
+restricted to training pairs, then predictions are made on withheld pairs.
+\textbf{gdmbayes} \texttt{GDM} achieves RMSE~=~0.064 and MAE~=~0.042,
+outperforming the R \textbf{gdm} benchmark (RMSE~=~0.074, MAE~=~0.055) from
+\citet{white2024}. Full example scripts are provided in the
+\texttt{examples/} directory of the repository.
 
 \begin{table}[h]
-\caption{Predictive performance on the southwest Australia dataset
-  (10-fold cross-validation on site pairs), compared with benchmarks from
-  \citet{white2024} Table~1. RMSE and MAE are on the Bray--Curtis dissimilarity
-  scale ($y \in [0, 1]$).\label{tab:benchmark}}{%
-\begin{tabular}{@{}lcc@{}}
-\toprule
-Model & RMSE & MAE \\
-\midrule
-R \textbf{gdm} --- Ferrier \citep{white2024} & 0.0737 & 0.0549 \\
-Best spGDMM \citep{white2024}                 & 0.0731 & 0.0545 \\
-\textbf{gdmbayes} \texttt{GDM} (this paper)  & 0.0636 & 0.0424 \\
-\textbf{gdmbayes} \texttt{spGDMM} --- no spatial & [TBD] & [TBD] \\
-\textbf{gdmbayes} \texttt{spGDMM} --- abs\_diff  & [TBD] & [TBD] \\
-\botrule
-\end{tabular}}{}
+  \centering
+  \caption{Predictive performance on the southwest Australia dataset under
+    10-fold cross-validation on site pairs, compared with benchmarks from
+    \citet{white2024} Table~1. RMSE and MAE on the Bray--Curtis dissimilarity
+    scale ($y \in [0,1]$). Bayesian \texttt{spGDMM} results pending MCMC run.}
+  \label{tab:benchmark}
+  \begin{tabular}{lcc}
+    \toprule
+    Model & RMSE & MAE \\
+    \midrule
+    R \textbf{gdm} --- Ferrier \citep{white2024}     & 0.0737 & 0.0549 \\
+    Best spGDMM \citep{white2024}                     & 0.0731 & 0.0545 \\
+    \textbf{gdmbayes} \texttt{GDM} (this paper)      & 0.0636 & 0.0424 \\
+    \textbf{gdmbayes} \texttt{spGDMM} --- no spatial & [TBD]  & [TBD]  \\
+    \textbf{gdmbayes} \texttt{spGDMM} --- abs\_diff  & [TBD]  & [TBD]  \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
-\subsection{Bayesian spGDMM}
+% ---- 4. Comparison -----------------------------------------------------------
+\section{Comparison with Existing Tools}\label{sec:comparison}
 
-\begin{lstlisting}[style=python]
-from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig
-
-model = spGDMM(
-    preprocessor=PreprocessorConfig(
-        deg=3, knots=2, mesh_choice="percentile", distance_measure="geodesic"
-    ),
-    model_config=ModelConfig(
-        variance="homogeneous", spatial_effect="abs_diff", alpha_importance=True
-    ),
-    sampler_config=SamplerConfig(
-        draws=1000, tune=1000, chains=4, target_accept=0.95,
-        nuts_sampler="nutpie", random_seed=42,
-    ),
-)
-idata = model.fit(X, y)
-model.save("southwest_bayes_absdiff.nc")
-\end{lstlisting}
-
-% ---- 4. Comparison ----------------------------------------------------------
-\section{Comparison with Existing Tools}
-
-Table~\ref{tab:comparison} compares \textbf{gdmbayes} with the R \textbf{gdm}
-package \citep{fitzpatrick2021} and prior Bayesian GDM work.
+Table~\ref{tab:comparison} compares \textbf{gdmbayes} with the R
+\textbf{gdm} package \citep{fitzpatrick2021} and prior Bayesian GDM work.
+\textbf{gdmbayes} is the only Python implementation and the only packaged
+software for the full Bayesian spGDMM model with spatial random effects.
 
 \begin{table}[h]
-\caption{Feature comparison of GDM implementations across key dimensions.
-  \textbf{gdmbayes} is the only Python implementation and the only packaged
-  software for the full Bayesian spGDMM model.\label{tab:comparison}}{%
-\begin{tabular}{@{}lccccc@{}}
-\toprule
-Feature & R \textbf{gdm} & BBGDM & Lusiana & White spGDMM & \textbf{gdmbayes} \\
-        &                & \citep{woolley2017} & \citep{lusiana2023} & \citep{white2024} & \\
-\midrule
-Language               & R   & R  & R     & R (NIMBLE) & \textbf{Python} \\
-Frequentist GDM        & Yes & Yes & Yes  & Yes & Yes \\
-Proper Bayesian inference & No & No & Yes & Yes & Yes \\
-Spatial random effects & No  & No  & No   & Yes & Yes \\
-One-inflation (Tobit)  & No  & No  & No   & Yes & Yes \\
-sklearn API            & No  & No  & No   & No  & Yes \\
-Installable package    & Yes & Yes & No   & No  & Yes \\
-\botrule
-\end{tabular}}{}
+  \centering
+  \caption{Feature comparison of GDM implementations.\label{tab:comparison}}
+  \begin{tabular}{lccccc}
+    \toprule
+    Feature & R \textbf{gdm} & BBGDM & Lusiana & White & \textbf{gdmbayes} \\
+            & \citep{fitzpatrick2021} & \citep{woolley2017} &
+              \citep{lusiana2023} & \citep{white2024} & \\
+    \midrule
+    Language               & R   & R   & R  & R/NIMBLE & Python \\
+    Frequentist GDM        & Yes & Yes & Yes & Yes     & Yes    \\
+    Proper Bayesian        & No  & No  & Yes & Yes     & Yes    \\
+    Spatial random effects & No  & No  & No  & Yes     & Yes    \\
+    One-inflation (Tobit)  & No  & No  & No  & Yes     & Yes    \\
+    sklearn API            & No  & No  & No  & No      & Yes    \\
+    Installable package    & Yes & Yes & No  & No      & Yes    \\
+    \bottomrule
+  \end{tabular}
 \end{table}
 
-The R \textbf{gdm} package remains the reference for frequentist GDM and
-provides additional utilities (partial regression plots, Monte Carlo
-significance testing) not yet included in \textbf{gdmbayes}. BBGDM
-\citep{woolley2017} provides bootstrap intervals but is not fully Bayesian.
-The Lusiana BGDM \citep{lusiana2023} uses a simpler binomial--logit
-specification with no spatial effects and no reusable software package.
-\textbf{gdmbayes} implements the full spGDMM model of \citet{white2024} as the
-first packaged, cross-platform Python software for hierarchical Bayesian GDM.
-
-% ---- 5. Availability --------------------------------------------------------
-\section{Availability}
+% ---- 5. Availability ---------------------------------------------------------
+\section{Availability}\label{sec:availability}
 
 \textbf{gdmbayes} is available at \url{https://github.com/harryhorsley9/spgdmm}
 under the Apache~2.0 licence. A PyPI release is forthcoming. A Zenodo DOI will
 be minted at the time of publication. The package requires Python~$\geq$~3.10
-and is tested on Linux. The southwest Australia dataset used in the running
-example is available from the R \textbf{gdm} package (\texttt{data(southwest)},
-\citealt{fitzpatrick2021}).
+and is tested on Linux.
 
-% ---- Acknowledgements -------------------------------------------------------
+% ---- Acknowledgements --------------------------------------------------------
 \section*{Acknowledgements}
 
 [To be completed.]
 
-% ---- Author Contributions ---------------------------------------------------
+% ---- Author Contributions ----------------------------------------------------
 \section*{Author Contributions}
 
 H.~Horsley: conceptualisation, software, formal analysis, writing --
 original draft, writing -- review and editing.
 
-% ---- Data Availability ------------------------------------------------------
+% ---- Data Availability -------------------------------------------------------
 \section*{Data Availability}
 
 The southwest Australia site and dissimilarity data used in the running example
 are derived from the R \textbf{gdm} package \citep{fitzpatrick2021} and are
 included in the \texttt{examples/data/} directory of the repository. All
-example scripts (\texttt{examples/southwest\_example.py},
-\texttt{examples/bci\_example.py}) are fully self-contained and reproducible.
+example scripts are fully self-contained and reproducible.
 
-% ---- References -------------------------------------------------------------
-\backmatter
+% ---- References --------------------------------------------------------------
 \bibliographystyle{plainnat}
 \bibliography{references}
 
