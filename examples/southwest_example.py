@@ -189,17 +189,10 @@ if args.mode in ("bayes", "both"):
         ),
     )
 
-    idata = model.fit(X, y)
+    model.fit(X, y)
 
-    # Posterior predictive mean as point estimate
-    if hasattr(idata, "posterior_predictive"):
-        y_pred_bayes = idata.posterior_predictive["y_obs"].values.reshape(-1, len(y)).mean(axis=0)
-    else:
-        # Fall back to posterior mean of mu
-        posterior = idata.posterior
-        alpha_post = posterior["alpha"].values  # (chains, draws, K)
-        # Use spGDMM predict on training data via preprocessor
-        y_pred_bayes = model.predict(X)
+    # Posterior predictive mean on training data (log_y scale → exp back to dissimilarity)
+    y_pred_bayes = np.exp(model.predict(X))
 
     r_bayes = rmse(y, y_pred_bayes)
     m_bayes = mae(y, y_pred_bayes)

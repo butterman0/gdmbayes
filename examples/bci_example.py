@@ -142,12 +142,10 @@ if args.mode in ("bayes", "both"):
         ),
     )
 
-    idata = model.fit(X, y)
+    model.fit(X, y)
 
-    if hasattr(idata, "posterior_predictive"):
-        y_pred_bayes = idata.posterior_predictive["y_obs"].values.reshape(-1, len(y)).mean(axis=0)
-    else:
-        y_pred_bayes = model.predict(X)
+    # Posterior predictive mean on training data (log_y scale → exp back to dissimilarity)
+    y_pred_bayes = np.exp(model.predict(X))
 
     r_b = rmse(y, y_pred_bayes)
     m_b = mae(y, y_pred_bayes)
