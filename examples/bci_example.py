@@ -155,10 +155,10 @@ if args.mode in ("bayes", "both"):
     print(f"MAE:  {m_b:.4f}")
     print(f"r:    {corr_b:.4f}")
 
-    out_nc = os.path.join(args.output_dir, f"bci_bayes_{args.spatial}.nc")
+    out_nc = os.path.join(args.output_dir, f"bci_spgdmm_{args.spatial}.nc")
     model.save(out_nc)
     pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes}).to_csv(
-        os.path.join(args.output_dir, f"bci_bayes_predictions_{args.spatial}.csv"), index=False
+        os.path.join(args.output_dir, f"bci_spgdmm_predictions_{args.spatial}.csv"), index=False
     )
 
 print("\nDone.")

@@ -203,13 +203,13 @@ if args.mode in ("bayes", "both"):
     print(f"Pearson r            : {corr_b:.4f}")
 
     # Save model and predictions
-    out_nc = os.path.join(args.output_dir, f"southwest_bayes_spatial{args.spatial}.nc")
+    out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{args.spatial}.nc")
     model.save(out_nc)
     print(f"Model saved to {out_nc}")
 
     bayes_results = pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes})
     bayes_results.to_csv(
-        os.path.join(args.output_dir, f"southwest_bayes_predictions_{args.spatial}.csv"),
+        os.path.join(args.output_dir, f"southwest_spgdmm_predictions_{args.spatial}.csv"),
         index=False,
     )
 
