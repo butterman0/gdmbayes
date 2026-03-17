@@ -166,30 +166,37 @@ if args.mode in ("bayes", "both"):
     print(f"BAYESIAN spGDMM  (spatial_effect={args.spatial!r})")
     print("=" * 60)
 
-    model = spGDMM(
-        preprocessor=PreprocessorConfig(
-            deg=3,
-            knots=2,
-            mesh_choice="percentile",
-            distance_measure="geodesic",
-        ),
-        model_config=ModelConfig(
-            variance="homogeneous",
-            spatial_effect=args.spatial,
-            alpha_importance=True,
-        ),
-        sampler_config=SamplerConfig(
-            draws=args.draws,
-            tune=args.tune,
-            chains=args.chains,
-            target_accept=0.95,
-            nuts_sampler="nutpie",
-            progressbar=True,
-            random_seed=args.seed,
-        ),
-    )
+    out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{args.spatial}.nc")
 
-    model.fit(X, y)
+    if os.path.exists(out_nc):
+        print(f"Loading saved model from {out_nc}")
+        model = spGDMM.load(out_nc)
+    else:
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(
+                deg=3,
+                knots=2,
+                mesh_choice="percentile",
+                distance_measure="geodesic",
+            ),
+            model_config=ModelConfig(
+                variance="homogeneous",
+                spatial_effect=args.spatial,
+                alpha_importance=True,
+            ),
+            sampler_config=SamplerConfig(
+                draws=args.draws,
+                tune=args.tune,
+                chains=args.chains,
+                target_accept=0.95,
+                nuts_sampler="nutpie",
+                progressbar=True,
+                random_seed=args.seed,
+            ),
+        )
+        model.fit(X, y)
+        model.save(out_nc)
+        print(f"Model saved to {out_nc}")
 
     # Posterior predictive mean on training data (log_y scale → exp back to dissimilarity)
     y_pred_bayes = np.exp(model.predict(X))
@@ -201,11 +208,6 @@ if args.mode in ("bayes", "both"):
     print(f"\nRMSE (posterior mean): {r_bayes:.4f}")
     print(f"MAE  (posterior mean): {m_bayes:.4f}")
     print(f"Pearson r            : {corr_b:.4f}")
-
-    # Save model and predictions
-    out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{args.spatial}.nc")
-    model.save(out_nc)
-    print(f"Model saved to {out_nc}")
 
     bayes_results = pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes})
     bayes_results.to_csv(
