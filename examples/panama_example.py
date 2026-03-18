@@ -26,6 +26,7 @@ Usage
 """
 
 import argparse
+import itertools
 import os
 import warnings
 import numpy as np
@@ -48,6 +49,10 @@ parser.add_argument(
     help="Run only this config index (0-7).  Omit to run all 8 configs."
 )
 parser.add_argument("--output_dir", type=str, default="results/panama")
+parser.add_argument(
+    "--n_folds", type=int, default=10,
+    help="Number of CV folds to run (default 10).  Pass 1 to run only the first fold."
+)
 args = parser.parse_args()
 
 os.makedirs(args.output_dir, exist_ok=True)
@@ -130,12 +135,14 @@ if args.mode in ("freq", "both"):
     gdm.fit(X, y)
     y_pred_train = gdm.predict(X)
 
-    # 10-fold site-level CV
+    # Site-level CV
     n_sites = len(X)
     n_pairs = len(y)
     kf = KFold(n_splits=10, shuffle=True, random_state=42)
     y_pred_cv = np.full(n_pairs, np.nan)
-    for _, (train_sites, test_sites) in enumerate(kf.split(np.arange(n_sites))):
+    for _, (train_sites, test_sites) in enumerate(
+        itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
+    ):
         train_pair_idx = site_pairs(n_sites, train_sites)
         test_pair_idx = site_pairs(n_sites, test_sites)
         X_train = X.iloc[train_sites].reset_index(drop=True)
@@ -145,12 +152,13 @@ if args.mode in ("freq", "both"):
         gdm_cv.fit(X_train, y_train)
         y_pred_cv[test_pair_idx] = gdm_cv.predict(X_test)
 
+    cv_mask = ~np.isnan(y_pred_cv)
     r_train = rmse(y, y_pred_train)
     m_train = mae(y, y_pred_train)
     c_train = crps_point(y, y_pred_train)
-    r_cv = rmse(y, y_pred_cv)
-    m_cv = mae(y, y_pred_cv)
-    c_cv = crps_point(y, y_pred_cv)
+    r_cv = rmse(y[cv_mask], y_pred_cv[cv_mask])
+    m_cv = mae(y[cv_mask], y_pred_cv[cv_mask])
+    c_cv = crps_point(y[cv_mask], y_pred_cv[cv_mask])
     corr, _ = pearsonr(y, y_pred_train)
 
     print(f"\nDeviance explained (train) : {gdm.explained_:.4f}")
@@ -239,14 +247,16 @@ if args.mode in ("bayes", "both"):
             full_model.save(out_nc)
             print(f"  Full-data model saved to {out_nc}")
 
-        # --- 10-fold site-level CV ---
+        # --- Site-level CV ---
         y_pred_cv = np.full(n_pairs, np.nan)
         crps_vals = []
 
-        for fold, (train_sites, test_sites) in enumerate(kf.split(np.arange(n_sites))):
+        for fold, (train_sites, test_sites) in enumerate(
+            itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
+        ):
             train_pair_idx = site_pairs(n_sites, train_sites)
             test_pair_idx = site_pairs(n_sites, test_sites)
-            print(f"  Fold {fold + 1:2d}/10 — {len(train_sites)} train sites "
+            print(f"  Fold {fold + 1}/{args.n_folds} — {len(train_sites)} train sites "
                   f"({len(train_pair_idx)} pairs), {len(test_sites)} test sites "
                   f"({len(test_pair_idx)} pairs)")
             X_train = X.iloc[train_sites].reset_index(drop=True)
@@ -258,8 +268,9 @@ if args.mode in ("bayes", "both"):
             y_pred_cv[test_pair_idx] = np.exp(samples_da.mean(dim="sample").values)
             crps_vals.append(crps_samples(y[test_pair_idx], samples_da))
 
-        r_cv = rmse(y, y_pred_cv)
-        m_cv = mae(y, y_pred_cv)
+        cv_mask = ~np.isnan(y_pred_cv)
+        r_cv = rmse(y[cv_mask], y_pred_cv[cv_mask])
+        m_cv = mae(y[cv_mask], y_pred_cv[cv_mask])
         c_cv = float(np.mean(crps_vals))
 
         print(f"\n  RMSE (10-fold CV): {r_cv:.4f}  (White 2024 Model 8: 0.0821)")
@@ -279,7 +290,8 @@ if args.mode in ("bayes", "both"):
             "RMSE_CV": r_cv,
             "MAE_CV": m_cv,
             "CRPS_CV": c_cv,
-            "n_folds": 10,
+            "n_folds_run": len(crps_vals),
+            "n_pairs_scored": int(cv_mask.sum()),
             "n_pairs": n_pairs,
         })
 

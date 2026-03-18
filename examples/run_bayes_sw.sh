@@ -21,6 +21,7 @@ echo "=== Bayesian spGDMM — SW Australia  config_idx=${SLURM_ARRAY_TASK_ID} ==
 $PYTHON southwest_example.py --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
     --draws 1000 --tune 1000 --chains 4 --seed 42 \
+    --n_folds 1 \
     --output_dir results/southwest
 
 echo "Done (config_idx=${SLURM_ARRAY_TASK_ID})."

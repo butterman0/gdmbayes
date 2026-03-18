@@ -13,12 +13,12 @@ mkdir -p results/logs results/southwest results/panama results/gcfr
 PYTHON=/cluster/home/haroldh/miniforge3/envs/spgdmm-test/bin/python
 
 echo "=== Frequentist GDM: SW Australia ==="
-$PYTHON southwest_example.py --mode freq --output_dir results/southwest
+$PYTHON southwest_example.py --mode freq --n_folds 1 --output_dir results/southwest
 
 echo "=== Frequentist GDM: Panama ==="
-$PYTHON panama_example.py --mode freq --output_dir results/panama
+$PYTHON panama_example.py --mode freq --n_folds 1 --output_dir results/panama
 
 echo "=== Frequentist GDM: GCFR ==="
-$PYTHON gcfr_example.py --mode freq --output_dir results/gcfr
+$PYTHON gcfr_example.py --mode freq --n_folds 1 --output_dir results/gcfr
 
 echo "All done."
