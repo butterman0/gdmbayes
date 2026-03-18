@@ -284,6 +284,35 @@ class TestSpGDMM:
         json.loads(result.attrs["model_config"])
         json.loads(result.attrs["sampler_config"])
 
+    def test_generate_and_preprocess_model_data_pair_subset(self, sample_data):
+        """pair_subset restricts the likelihood pairs; full pair indices are preserved."""
+        X, y = sample_data
+        n_sites = len(X)
+        n_pairs_full = n_sites * (n_sites - 1) // 2
+
+        # Use the first 80% of pairs as the training subset
+        train_idx = np.arange(int(0.8 * n_pairs_full))
+
+        model = spGDMM()
+        model._generate_and_preprocess_model_data(X, y, pair_subset=train_idx)
+
+        # X_transformed and y_transformed should be subset-sized
+        assert model.X_transformed.shape[0] == len(train_idx)
+        assert model.y_transformed.shape[0] == len(train_idx)
+
+        # _pair_indices should match the subset
+        row_ind, col_ind = model._pair_indices
+        assert len(row_ind) == len(train_idx)
+        assert len(col_ind) == len(train_idx)
+
+        # _all_pair_indices always stores the full set
+        all_row, all_col = model._all_pair_indices
+        assert len(all_row) == n_pairs_full
+        assert len(all_col) == n_pairs_full
+
+        # metadata.no_rows reflects the subset
+        assert model.metadata.no_rows == len(train_idx)
+
 
 class TestDataPreprocessing:
     """Test data preprocessing methods."""

@@ -1,8 +1,8 @@
 """
 Panama GDM example (White et al. 2024 dataset)
 ===============================================
-Fits the frequentist GDM and the Bayesian spGDMM to the Panama tree survey
-data used by White et al. (2024) Table 1.
+Fits the frequentist GDM and the Bayesian spGDMM (8 model configurations)
+to the Panama tree survey data used by White et al. (2024) Table 1.
 
 Dataset
 -------
@@ -21,7 +21,8 @@ White et al. (2024) Table 1 benchmarks (10-fold CV):
 Usage
 -----
   python panama_example.py --mode freq
-  python panama_example.py --mode bayes --spatial abs_diff
+  python panama_example.py --mode bayes
+  python panama_example.py --mode bayes --config_idx 0
 """
 
 import argparse
@@ -42,7 +43,10 @@ parser.add_argument("--draws", type=int, default=1000)
 parser.add_argument("--tune", type=int, default=1000)
 parser.add_argument("--chains", type=int, default=4)
 parser.add_argument("--seed", type=int, default=42)
-parser.add_argument("--spatial", choices=["none", "abs_diff", "squared_diff"], default="none")
+parser.add_argument(
+    "--config_idx", type=int, default=None,
+    help="Run only this config index (0-7).  Omit to run all 8 configs."
+)
 parser.add_argument("--output_dir", type=str, default="results/panama")
 args = parser.parse_args()
 
@@ -89,12 +93,14 @@ def crps_point(y_true, y_pred):
     """CRPS for a point forecast equals MAE."""
     return mae(y_true, y_pred)
 
-def crps_samples(y_true, samples_da):
+def crps_samples(y_true, samples_da, idx=None):
     """CRPS from a DataArray of posterior predictive samples (log scale → exp back)."""
     vals = np.exp(samples_da.values)
     sample_axis = list(samples_da.dims).index("sample")
     if sample_axis == 0:
         vals = vals.T  # → (n_obs, n_samples)
+    if idx is not None:
+        return crps_ensemble(np.asarray(y_true)[idx], vals[idx]).mean()
     return crps_ensemble(y_true, vals).mean()
 
 
@@ -160,63 +166,121 @@ if args.mode in ("freq", "both"):
     )
 
 # ---------------------------------------------------------------------------
-# 2. Bayesian spGDMM
+# 2. Bayesian spGDMM — 8 model configurations × 10-fold CV
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
     from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig
+    from sklearn.model_selection import KFold
 
-    print("=" * 60)
-    print(f"BAYESIAN spGDMM — Panama  (spatial_effect={args.spatial!r})")
-    print("=" * 60)
+    # Model grid matching White et al. (2024) Table 1 (Models 1-8)
+    CONFIGS = [
+        dict(spatial_effect="none",          variance="homogeneous"),           # Model 1
+        dict(spatial_effect="none",          variance="covariate_dependent"),   # Model 2
+        dict(spatial_effect="none",          variance="polynomial"),            # Model 3
+        dict(spatial_effect="abs_diff",      variance="homogeneous"),           # Model 4
+        dict(spatial_effect="abs_diff",      variance="covariate_dependent"),   # Model 5
+        dict(spatial_effect="abs_diff",      variance="polynomial"),            # Model 6
+        dict(spatial_effect="squared_diff",  variance="homogeneous"),           # Model 7
+        dict(spatial_effect="squared_diff",  variance="covariate_dependent"),   # Model 8 (best)
+    ]
 
-    out_nc = os.path.join(args.output_dir, f"panama_spgdmm_{args.spatial}.nc")
-
-    if os.path.exists(out_nc):
-        print(f"Loading saved model from {out_nc}")
-        model = spGDMM.load(out_nc)
-    else:
-        model = spGDMM(
-            preprocessor=PreprocessorConfig(
-                deg=3,
-                knots=1,  # White et al. used knots=1 (df = deg + knots = 4)
-                mesh_choice="percentile",
-                distance_measure="euclidean",
-            ),
-            model_config=ModelConfig(
-                variance="homogeneous",
-                spatial_effect=args.spatial,
-                alpha_importance=True,
-            ),
-            sampler_config=SamplerConfig(
-                draws=args.draws,
-                tune=args.tune,
-                chains=args.chains,
-                target_accept=0.95,
-                nuts_sampler="nutpie",
-                progressbar=True,
-                random_seed=args.seed,
-            ),
-        )
-        model.fit(X, y)
-        model.save(out_nc)
-        print(f"Model saved to {out_nc}")
-
-    # Full posterior predictive distribution (log scale → exp back to dissimilarity)
-    samples_da = model.predict_posterior(X, combined=True)
-    y_pred_bayes = np.exp(samples_da.mean(dim="sample").values)
-
-    r_b = rmse(y, y_pred_bayes)
-    m_b = mae(y, y_pred_bayes)
-    c_b = crps_samples(y, samples_da)
-    corr_b, _ = pearsonr(y, y_pred_bayes)
-
-    print(f"\nRMSE: {r_b:.4f}")
-    print(f"MAE:  {m_b:.4f}")
-    print(f"CRPS: {c_b:.4f}")
-    print(f"r:    {corr_b:.4f}")
-    pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes}).to_csv(
-        os.path.join(args.output_dir, f"panama_spgdmm_predictions_{args.spatial}.csv"),
-        index=False,
+    configs_to_run = (
+        [CONFIGS[args.config_idx]] if args.config_idx is not None else CONFIGS
     )
+
+    n_pairs = len(y)
+    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+
+    all_cv_metrics = []
+
+    for cfg in configs_to_run:
+        tag = f"{cfg['spatial_effect']}_{cfg['variance']}"
+        print("=" * 60)
+        print(f"BAYESIAN spGDMM — Panama  [{tag}]")
+        print("=" * 60)
+
+        def make_spgdmm():
+            return spGDMM(
+                preprocessor=PreprocessorConfig(
+                    deg=3,
+                    knots=1,
+                    mesh_choice="percentile",
+                    distance_measure="euclidean",
+                ),
+                model_config=ModelConfig(
+                    variance=cfg["variance"],
+                    spatial_effect=cfg["spatial_effect"],
+                    alpha_importance=True,
+                ),
+                sampler_config=SamplerConfig(
+                    draws=args.draws,
+                    tune=args.tune,
+                    chains=args.chains,
+                    target_accept=0.95,
+                    nuts_sampler="nutpie",
+                    progressbar=True,
+                    random_seed=args.seed,
+                ),
+            )
+
+        # --- Full-data model (saved for response curves / paper figures) ---
+        out_nc = os.path.join(args.output_dir, f"panama_spgdmm_{tag}.nc")
+        if os.path.exists(out_nc):
+            print(f"  Full-data model: loading from {out_nc}")
+            full_model = spGDMM.load(out_nc)
+        else:
+            full_model = make_spgdmm()
+            full_model.fit(X, y)
+            full_model.save(out_nc)
+            print(f"  Full-data model saved to {out_nc}")
+
+        # --- 10-fold CV on site pairs ---
+        y_pred_cv = np.full(n_pairs, np.nan)
+        crps_vals = []
+
+        for fold, (train_idx, test_idx) in enumerate(kf.split(np.arange(n_pairs))):
+            print(f"  Fold {fold + 1:2d}/10 — {len(train_idx)} train pairs, "
+                  f"{len(test_idx)} test pairs")
+            cv_model = make_spgdmm()
+            cv_model.fit(X, y, pair_subset=train_idx)
+
+            samples_da = cv_model.predict_posterior(X, combined=True)
+            y_pred_all = np.exp(samples_da.mean(dim="sample").values)
+            y_pred_cv[test_idx] = y_pred_all[test_idx]
+            crps_vals.append(crps_samples(y, samples_da, idx=test_idx))
+
+        r_cv = rmse(y, y_pred_cv)
+        m_cv = mae(y, y_pred_cv)
+        c_cv = float(np.mean(crps_vals))
+
+        print(f"\n  RMSE (10-fold CV): {r_cv:.4f}  (White 2024 Model 8: 0.0821)")
+        print(f"  MAE  (10-fold CV): {m_cv:.4f}  (White 2024 Model 8: 0.0618)")
+        print(f"  CRPS (10-fold CV): {c_cv:.4f}  (White 2024 Model 8: 0.0450)")
+
+        pd.DataFrame({"y_obs": y, "y_pred_cv": y_pred_cv}).to_csv(
+            os.path.join(args.output_dir, f"panama_spgdmm_{tag}_cv_predictions.csv"),
+            index=False,
+        )
+
+        all_cv_metrics.append({
+            "dataset": "Panama",
+            "config_tag": tag,
+            "spatial_effect": cfg["spatial_effect"],
+            "variance": cfg["variance"],
+            "RMSE_CV": r_cv,
+            "MAE_CV": m_cv,
+            "CRPS_CV": c_cv,
+            "n_folds": 10,
+            "n_pairs": n_pairs,
+        })
+
+    metrics_path = os.path.join(args.output_dir, "panama_cv_metrics.csv")
+    new_df = pd.DataFrame(all_cv_metrics)
+    if os.path.exists(metrics_path) and args.config_idx is not None:
+        existing = pd.read_csv(metrics_path)
+        existing = existing[~existing["config_tag"].isin(new_df["config_tag"])]
+        new_df = pd.concat([existing, new_df], ignore_index=True)
+    new_df.to_csv(metrics_path, index=False)
+    print(f"\nCV metrics saved to {metrics_path}")
 
 print("\nDone.")

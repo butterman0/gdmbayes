@@ -175,7 +175,7 @@ class spGDMM(BaseEstimator):
         return self._config_dict
 
     def _generate_and_preprocess_model_data(
-        self, X: pd.DataFrame, y: pd.Series
+        self, X: pd.DataFrame, y: pd.Series, pair_subset=None
     ) -> None:
         """
         Preprocess model data before fitting.
@@ -190,6 +190,11 @@ class spGDMM(BaseEstimator):
             Site-level data with columns [xc, yc, time_idx, predictor1, ...]
         y : pd.Series
             Pairwise Bray-Curtis dissimilarities
+        pair_subset : array-like of int or None, default None
+            Indices into the condensed pair vector to include in the likelihood.
+            The preprocessor is always fitted on all sites; only the MCMC likelihood
+            uses this subset.  Useful for cross-validation.  ``_all_pair_indices``
+            always stores the full upper-triangle indices for all sites.
         """
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
@@ -201,7 +206,9 @@ class spGDMM(BaseEstimator):
         self.y = log_y
 
         n_sites = X.shape[0]
-        self._pair_indices = np.triu_indices(n_sites, k=1)
+        all_row_ind, all_col_ind = np.triu_indices(n_sites, k=1)
+        # Full pair indices — always kept for use during prediction.
+        self._all_pair_indices = (all_row_ind, all_col_ind)
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
         if not hasattr(self.preprocessor, "n_predictors_"):
@@ -236,19 +243,32 @@ class spGDMM(BaseEstimator):
         # Combine features
         X_GDM = np.column_stack([I_spline_bases_diffs, dist_spline_bases])
 
+        # Optionally restrict to a subset of pairs for the likelihood.
+        if pair_subset is not None:
+            pair_subset = np.asarray(pair_subset)
+            X_GDM_fit = X_GDM[pair_subset]
+            log_y_fit = log_y[pair_subset]
+            pw_dist_fit = pw_dist_clipped[pair_subset]
+            self._pair_indices = (all_row_ind[pair_subset], all_col_ind[pair_subset])
+        else:
+            X_GDM_fit = X_GDM
+            log_y_fit = log_y
+            pw_dist_fit = pw_dist_clipped
+            self._pair_indices = (all_row_ind, all_col_ind)
+
         n_cols_env = I_spline_bases_diffs.shape[1] if I_spline_bases_diffs.size > 0 else 0
         n_cols_dist = dist_spline_bases.shape[1] if dist_spline_bases.size > 0 else 0
 
         self.metadata = ModelMetadata(
             no_sites_train=n_sites,
             no_predictors=n_predictors,
-            no_rows=X_GDM.shape[0],
-            no_cols=X_GDM.shape[1],
+            no_rows=X_GDM_fit.shape[0],
+            no_cols=X_GDM_fit.shape[1],
             no_cols_env=n_cols_env,
             no_cols_dist=n_cols_dist,
             predictors=predictor_names_from_data if n_predictors > 0 else [],
-            column_names=[f"x_{i}" for i in range(X_GDM.shape[1])],
-            X_sigma=pw_dist_clipped.reshape(-1, 1) if n_predictors > 0 else None,
+            column_names=[f"x_{i}" for i in range(X_GDM_fit.shape[1])],
+            X_sigma=pw_dist_fit.reshape(-1, 1) if n_predictors > 0 else None,
             p_sigma=1 if n_predictors > 0 else 0,
         )
 
@@ -262,8 +282,8 @@ class spGDMM(BaseEstimator):
 
         self.n_features_in_ = n_predictors
 
-        self.X_transformed = X_GDM
-        self.y_transformed = log_y
+        self.X_transformed = X_GDM_fit
+        self.y_transformed = log_y_fit
 
     def build_model(
         self,
@@ -355,13 +375,17 @@ class spGDMM(BaseEstimator):
                 psi = gp.prior("psi", X=location_values, dims=("site_train",))
 
                 row_ind, col_ind = self._pair_indices
+                # Use pm.Data so indices can be updated via pm.set_data during prediction
+                # when the model was fitted on a pair_subset.
+                row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
+                col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
 
                 spatial_fn = (
                     self._config.spatial_effect
                     if callable(self._config.spatial_effect)
                     else SPATIAL_FUNCTIONS[self._config.spatial_effect]
                 )
-                mu += spatial_fn(psi, row_ind, col_ind)
+                mu += spatial_fn(psi, row_indices, col_indices)
 
             pm.Censored(
                 "log_y",
@@ -417,18 +441,35 @@ class spGDMM(BaseEstimator):
         X: pd.DataFrame | np.ndarray,
         y: pd.Series | np.ndarray | None = None,
     ) -> None:
-        """Update mutable data containers in the existing model for prediction."""
+        """Update mutable data containers in the existing model for prediction.
+
+        For spatial models fitted with ``pair_subset``, also updates ``row_indices``
+        and ``col_indices`` to match the prediction data so the spatial effect
+        term has the correct shape.
+        """
         X_transformed = self._transform_for_prediction(X)
+        n_pred_pairs = X_transformed.shape[0]
 
         if y is None:
-            log_y = np.zeros(X_transformed.shape[0])
+            log_y = np.zeros(n_pred_pairs)
         else:
             log_y = np.log(np.maximum(np.asarray(y, dtype=float), np.finfo(float).eps))
 
+        set_data_dict: dict = {"X_data": X_transformed, "log_y_data": log_y}
+
+        # For spatial models: recompute pair indices for the prediction sites so the
+        # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
+        # via the quadratic formula: n_pairs = n*(n-1)/2.
+        if self._config.spatial_effect != "none":
+            n_pred_sites = round((1 + (1 + 8 * n_pred_pairs) ** 0.5) / 2)
+            pred_row_ind, pred_col_ind = np.triu_indices(n_pred_sites, k=1)
+            set_data_dict["row_indices"] = pred_row_ind.astype(np.int32)
+            set_data_dict["col_indices"] = pred_col_ind.astype(np.int32)
+
         with self.model:
             pm.set_data(
-                {"X_data": X_transformed, "log_y_data": log_y},
-                coords={"obs_pair": np.arange(X_transformed.shape[0])},
+                set_data_dict,
+                coords={"obs_pair": np.arange(n_pred_pairs)},
             )
 
     def _save_input_params(self, idata: az.InferenceData) -> None:
@@ -491,6 +532,7 @@ class spGDMM(BaseEstimator):
         y: pd.Series | None = None,
         progressbar: bool = True,
         random_seed=None,
+        pair_subset=None,
         **kwargs,
     ) -> "spGDMM":
         """
@@ -506,6 +548,14 @@ class spGDMM(BaseEstimator):
             Whether to display a progress bar during sampling.
         random_seed : int or None
             Random seed for reproducibility.
+        pair_subset : array-like of int or None, default None
+            Indices into the condensed pair vector to include in the likelihood.
+            The preprocessor is always fitted on all sites; only the MCMC likelihood
+            uses this subset.  Useful for cross-validation.  After fitting, call
+            ``predict_posterior(X)`` with the full site matrix to get predictions
+            for all pairs.  CV models fitted with ``pair_subset`` should not be
+            saved via ``.save()`` as the stored ``log_y_data`` will reflect the
+            subset only.
         **kwargs
             Additional keyword arguments forwarded to the sampler.
 
@@ -525,7 +575,7 @@ class spGDMM(BaseEstimator):
             y = np.zeros(X.shape[0])
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
-        self._generate_and_preprocess_model_data(X, y_series.values)
+        self._generate_and_preprocess_model_data(X, y_series.values, pair_subset=pair_subset)
         self.build_model(self.X, self.y)
 
         self.idata = self._sample_model()
