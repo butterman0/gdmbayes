@@ -671,7 +671,7 @@ class spGDMM(BaseEstimator):
         xr.DataArray
         """
         posterior_predictive_samples = self.sample_posterior_predictive(
-            X_pred, extend_idata, combined, y_pred_obs=y_pred_obs,
+            X_pred, extend_idata, combined,
             predictions=predictions, **kwargs
         )
         if self.output_var not in posterior_predictive_samples:

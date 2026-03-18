@@ -33,6 +33,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
+from properscoring import crps_ensemble
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -87,6 +88,18 @@ def rmse(y_true, y_pred):
 def mae(y_true, y_pred):
     return np.mean(np.abs(y_true - y_pred))
 
+def crps_point(y_true, y_pred):
+    """CRPS for a point forecast equals MAE."""
+    return mae(y_true, y_pred)
+
+def crps_samples(y_true, samples_da):
+    """CRPS from a DataArray of posterior predictive samples (log scale → exp back)."""
+    vals = np.exp(samples_da.values)
+    sample_axis = list(samples_da.dims).index("sample")
+    if sample_axis == 0:
+        vals = vals.T  # → (n_obs, n_samples)
+    return crps_ensemble(y_true, vals).mean()
+
 # ---------------------------------------------------------------------------
 # 1. Frequentist GDM
 # ---------------------------------------------------------------------------
@@ -129,16 +142,20 @@ if args.mode in ("freq", "both"):
 
     r_cv = rmse(y, y_pred_cv)
     m_cv = mae(y, y_pred_cv)
+    c_cv = crps_point(y, y_pred_cv)
 
     r_train = rmse(y, y_pred_train)
     m_train = mae(y, y_pred_train)
+    c_train = crps_point(y, y_pred_train)
     corr, _ = pearsonr(y, y_pred_train)
 
     print(f"\nDeviance explained (train) : {gdm.explained_:.4f}")
     print(f"RMSE (train)               : {r_train:.4f}")
     print(f"MAE  (train)               : {m_train:.4f}")
+    print(f"CRPS (train)               : {c_train:.4f}  (= MAE for point forecast)")
     print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.0737)")
     print(f"MAE  (10-fold CV)          : {m_cv:.4f}  (White 2024 Ferrier: 0.0549)")
+    print(f"CRPS (10-fold CV)          : {c_cv:.4f}  (= MAE for point forecast)")
     print(f"Pearson r (train)          : {corr:.4f}")
     print(f"\nPredictor importance:")
     for name, imp in gdm.predictor_importance_.items():
@@ -150,8 +167,8 @@ if args.mode in ("freq", "both"):
     )
     pd.DataFrame([{
         "model": "gdmbayes GDM (frequentist)",
-        "RMSE_train": r_train, "MAE_train": m_train,
-        "RMSE_10fold_CV": r_cv, "MAE_10fold_CV": m_cv,
+        "RMSE_train": r_train, "MAE_train": m_train, "CRPS_train": c_train,
+        "RMSE_10fold_CV": r_cv, "MAE_10fold_CV": m_cv, "CRPS_10fold_CV": c_cv,
         "Pearson_r": corr, "deviance_explained": gdm.explained_,
     }]).to_csv(os.path.join(args.output_dir, "southwest_freq_summary.csv"), index=False)
     print(f"\nResults saved to {args.output_dir}/")
@@ -198,15 +215,18 @@ if args.mode in ("bayes", "both"):
         model.save(out_nc)
         print(f"Model saved to {out_nc}")
 
-    # Posterior predictive mean on training data (log_y scale → exp back to dissimilarity)
-    y_pred_bayes = np.exp(model.predict(X))
+    # Full posterior predictive distribution (log scale → exp back to dissimilarity)
+    samples_da = model.predict_posterior(X, combined=True)
+    y_pred_bayes = np.exp(samples_da.mean(dim="sample").values)
 
     r_bayes = rmse(y, y_pred_bayes)
     m_bayes = mae(y, y_pred_bayes)
+    c_bayes = crps_samples(y, samples_da)
     corr_b, _ = pearsonr(y, y_pred_bayes)
 
     print(f"\nRMSE (posterior mean): {r_bayes:.4f}")
     print(f"MAE  (posterior mean): {m_bayes:.4f}")
+    print(f"CRPS                 : {c_bayes:.4f}")
     print(f"Pearson r            : {corr_b:.4f}")
 
     bayes_results = pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes})
