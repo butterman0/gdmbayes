@@ -530,15 +530,17 @@ class spGDMM(BaseEstimator):
 
         self.idata = self._sample_model()
 
-        combined_data = pd.concat([X, y_series], axis=1)
-        assert all(combined_data.columns), "All columns must have non-empty names"
+        # Save only site-level X in fit_data. Pair-level y is recoverable from
+        # idata.constant_data["log_y_data"]. Concatenating X (n_sites rows) with
+        # y_series (n_pairs rows) misaligns pandas indices and inflates fit_data to
+        # n_pairs rows, causing n_sites to be reconstructed as n_pairs on load().
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
                 category=UserWarning,
                 message="The group fit_data is not defined in the InferenceData scheme",
             )
-            self.idata.add_groups(fit_data=combined_data.to_xarray())
+            self.idata.add_groups(fit_data=X.to_xarray())
 
         return self
 
@@ -585,9 +587,17 @@ class spGDMM(BaseEstimator):
         model.idata = idata
 
         # Populate metadata from stored training data using the already-fitted preprocessor.
-        dataset = idata.fit_data.to_dataframe()
-        X = dataset.drop(columns=["log_y"])
-        y_raw = dataset["log_y"]  # stored as raw dissimilarities despite the column name
+        # fit_data contains site-level X; pair-level y is recovered from constant_data.
+        fit_df = idata.fit_data.to_dataframe()
+        if "log_y" in fit_df.columns:
+            # Legacy format: X and y were concat'd with mismatched lengths. Recover X
+            # by dropping rows that are NaN (rows beyond n_sites), and y from constant_data.
+            X = fit_df.drop(columns=["log_y"]).dropna()
+        else:
+            X = fit_df
+        # y is stored as log_y_data (log-transformed) in constant_data; exp to recover.
+        log_y_stored = idata.constant_data["log_y_data"].values
+        y_raw = np.exp(log_y_stored)
         model._generate_and_preprocess_model_data(X, y_raw)
         model.build_model(model.X, model.y)
 

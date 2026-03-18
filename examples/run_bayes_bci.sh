@@ -8,7 +8,7 @@
 
 set -e
 cd /cluster/home/haroldh/spgdmm/examples
-mkdir -p results/logs results/bci
+mkdir -p results/logs results/bci ~/.cache/arviz
 
 PYTHON=/cluster/home/haroldh/miniforge3/envs/spgdmm-test/bin/python
 
