@@ -19,6 +19,7 @@ from gdmbayes import (
     SamplerConfig,
     PreprocessorConfig,
     GDMPreprocessor,
+    site_pairs,
 )
 
 
@@ -284,34 +285,37 @@ class TestSpGDMM:
         json.loads(result.attrs["model_config"])
         json.loads(result.attrs["sampler_config"])
 
-    def test_generate_and_preprocess_model_data_pair_subset(self, sample_data):
-        """pair_subset restricts the likelihood pairs; full pair indices are preserved."""
+    def test_site_pairs_count(self, sample_data):
+        """site_pairs returns n_subset*(n_subset-1)//2 indices for a site subset."""
         X, y = sample_data
         n_sites = len(X)
-        n_pairs_full = n_sites * (n_sites - 1) // 2
+        # Use sites 0..12 (13 sites → 78 pairs)
+        subset = np.arange(13)
+        idx = site_pairs(n_sites, subset)
+        assert len(idx) == 13 * 12 // 2
 
-        # Use the first 80% of pairs as the training subset
-        train_idx = np.arange(int(0.8 * n_pairs_full))
+    def test_site_level_cv_fit_predict(self, sample_data):
+        """Fit GDM on training sites and predict on held-out test sites."""
+        X, y = sample_data
+        n_sites = len(X)
+        # Split into first 15 train sites and last 5 test sites
+        train_sites = np.arange(15)
+        test_sites = np.arange(15, n_sites)
 
-        model = spGDMM()
-        model._generate_and_preprocess_model_data(X, y, pair_subset=train_idx)
+        train_pair_idx = site_pairs(n_sites, train_sites)
+        test_pair_idx = site_pairs(n_sites, test_sites)
 
-        # X_transformed and y_transformed should be subset-sized
-        assert model.X_transformed.shape[0] == len(train_idx)
-        assert model.y_transformed.shape[0] == len(train_idx)
+        X_train = X.iloc[train_sites].reset_index(drop=True)
+        y_train = y[train_pair_idx]
+        X_test = X.iloc[test_sites].reset_index(drop=True)
 
-        # _pair_indices should match the subset
-        row_ind, col_ind = model._pair_indices
-        assert len(row_ind) == len(train_idx)
-        assert len(col_ind) == len(train_idx)
+        m = GDM()
+        m.fit(X_train, y_train)
+        preds = m.predict(X_test)
 
-        # _all_pair_indices always stores the full set
-        all_row, all_col = model._all_pair_indices
-        assert len(all_row) == n_pairs_full
-        assert len(all_col) == n_pairs_full
-
-        # metadata.no_rows reflects the subset
-        assert model.metadata.no_rows == len(train_idx)
+        expected_n_test_pairs = len(test_sites) * (len(test_sites) - 1) // 2
+        assert preds.shape == (expected_n_test_pairs,)
+        assert len(test_pair_idx) == expected_n_test_pairs
 
 
 class TestDataPreprocessing:

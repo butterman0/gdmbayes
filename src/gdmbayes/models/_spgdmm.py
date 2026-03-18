@@ -175,7 +175,7 @@ class spGDMM(BaseEstimator):
         return self._config_dict
 
     def _generate_and_preprocess_model_data(
-        self, X: pd.DataFrame, y: pd.Series, pair_subset=None
+        self, X: pd.DataFrame, y: pd.Series
     ) -> None:
         """
         Preprocess model data before fitting.
@@ -189,12 +189,7 @@ class spGDMM(BaseEstimator):
         X : pd.DataFrame
             Site-level data with columns [xc, yc, time_idx, predictor1, ...]
         y : pd.Series
-            Pairwise Bray-Curtis dissimilarities
-        pair_subset : array-like of int or None, default None
-            Indices into the condensed pair vector to include in the likelihood.
-            The preprocessor is always fitted on all sites; only the MCMC likelihood
-            uses this subset.  Useful for cross-validation.  ``_all_pair_indices``
-            always stores the full upper-triangle indices for all sites.
+            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
         """
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
@@ -207,8 +202,6 @@ class spGDMM(BaseEstimator):
 
         n_sites = X.shape[0]
         all_row_ind, all_col_ind = np.triu_indices(n_sites, k=1)
-        # Full pair indices — always kept for use during prediction.
-        self._all_pair_indices = (all_row_ind, all_col_ind)
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
         if not hasattr(self.preprocessor, "n_predictors_"):
@@ -243,18 +236,10 @@ class spGDMM(BaseEstimator):
         # Combine features
         X_GDM = np.column_stack([I_spline_bases_diffs, dist_spline_bases])
 
-        # Optionally restrict to a subset of pairs for the likelihood.
-        if pair_subset is not None:
-            pair_subset = np.asarray(pair_subset)
-            X_GDM_fit = X_GDM[pair_subset]
-            log_y_fit = log_y[pair_subset]
-            pw_dist_fit = pw_dist_clipped[pair_subset]
-            self._pair_indices = (all_row_ind[pair_subset], all_col_ind[pair_subset])
-        else:
-            X_GDM_fit = X_GDM
-            log_y_fit = log_y
-            pw_dist_fit = pw_dist_clipped
-            self._pair_indices = (all_row_ind, all_col_ind)
+        X_GDM_fit = X_GDM
+        log_y_fit = log_y
+        pw_dist_fit = pw_dist_clipped
+        self._pair_indices = (all_row_ind, all_col_ind)
 
         n_cols_env = I_spline_bases_diffs.shape[1] if I_spline_bases_diffs.size > 0 else 0
         n_cols_dist = dist_spline_bases.shape[1] if dist_spline_bases.size > 0 else 0
@@ -376,7 +361,7 @@ class spGDMM(BaseEstimator):
 
                 row_ind, col_ind = self._pair_indices
                 # Use pm.Data so indices can be updated via pm.set_data during prediction
-                # when the model was fitted on a pair_subset.
+                # when X_pred has a different number of sites than X_train.
                 row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
                 col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
 
@@ -443,9 +428,8 @@ class spGDMM(BaseEstimator):
     ) -> None:
         """Update mutable data containers in the existing model for prediction.
 
-        For spatial models fitted with ``pair_subset``, also updates ``row_indices``
-        and ``col_indices`` to match the prediction data so the spatial effect
-        term has the correct shape.
+        For spatial models, also updates ``row_indices`` and ``col_indices`` to
+        match the prediction sites so the spatial effect term has the correct shape.
         """
         X_transformed = self._transform_for_prediction(X)
         n_pred_pairs = X_transformed.shape[0]
@@ -532,7 +516,6 @@ class spGDMM(BaseEstimator):
         y: pd.Series | None = None,
         progressbar: bool = True,
         random_seed=None,
-        pair_subset=None,
         **kwargs,
     ) -> "spGDMM":
         """
@@ -543,19 +526,11 @@ class spGDMM(BaseEstimator):
         X : pd.DataFrame
             Site-level data with columns [xc, yc, time_idx, predictor1, ...]
         y : array-like
-            Pairwise Bray-Curtis dissimilarities.
+            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
         progressbar : bool
             Whether to display a progress bar during sampling.
         random_seed : int or None
             Random seed for reproducibility.
-        pair_subset : array-like of int or None, default None
-            Indices into the condensed pair vector to include in the likelihood.
-            The preprocessor is always fitted on all sites; only the MCMC likelihood
-            uses this subset.  Useful for cross-validation.  After fitting, call
-            ``predict_posterior(X)`` with the full site matrix to get predictions
-            for all pairs.  CV models fitted with ``pair_subset`` should not be
-            saved via ``.save()`` as the stored ``log_y_data`` will reflect the
-            subset only.
         **kwargs
             Additional keyword arguments forwarded to the sampler.
 
@@ -575,7 +550,7 @@ class spGDMM(BaseEstimator):
             y = np.zeros(X.shape[0])
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
-        self._generate_and_preprocess_model_data(X, y_series.values, pair_subset=pair_subset)
+        self._generate_and_preprocess_model_data(X, y_series.values)
         self.build_model(self.X, self.y)
 
         self.idata = self._sample_model()

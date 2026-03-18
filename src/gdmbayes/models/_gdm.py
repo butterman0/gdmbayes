@@ -92,7 +92,7 @@ class GDM(BaseEstimator, RegressorMixin):
     def __sklearn_is_fitted__(self):
         return hasattr(self, "coef_")
 
-    def fit(self, X: pd.DataFrame, y: np.ndarray, pair_subset=None) -> "GDM":
+    def fit(self, X: pd.DataFrame, y: np.ndarray) -> "GDM":
         """Fit the GDM.
 
         Parameters
@@ -102,10 +102,6 @@ class GDM(BaseEstimator, RegressorMixin):
         y : ndarray of shape (n_pairs,)
             Condensed pairwise dissimilarities in (0, 1). Length must equal
             n_sites * (n_sites - 1) / 2.
-        pair_subset : array-like of int or None, default None
-            Indices into the condensed pair vector to use for NNLS fitting.
-            The preprocessor is always fitted on all sites; only the NNLS
-            step uses the subset.  Useful for cross-validation.
 
         Returns
         -------
@@ -122,17 +118,9 @@ class GDM(BaseEstimator, RegressorMixin):
         self.preprocessor_ = self._build_preprocessor()
         self.preprocessor_.fit(X)
 
-        # Build GDM feature matrix (all pairs)
-        X_gdm = self._get_X_gdm(X)
-
-        # Optionally restrict to a subset of pairs for NNLS
-        if pair_subset is not None:
-            pair_subset = np.asarray(pair_subset)
-            X_gdm_fit = X_gdm[pair_subset]
-            y_fit = y[pair_subset]
-        else:
-            X_gdm_fit = X_gdm
-            y_fit = y
+        # Build GDM feature matrix
+        X_gdm_fit = self._get_X_gdm(X)
+        y_fit = y
 
         # Iteratively reweighted NNLS matching the R gdm C algorithm.
         # Ref: Gdmlib.cpp / NNLS_Double.cpp in gdm CRAN source.

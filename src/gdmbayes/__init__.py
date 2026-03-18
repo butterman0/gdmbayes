@@ -63,6 +63,9 @@ from .plotting._plots import (
 from .preprocessing._config import PreprocessorConfig
 from .preprocessing._preprocessor import GDMPreprocessor
 
+# Utilities
+from .utils import site_pairs
+
 __all__ = [
     # Version
     "__version__",
@@ -97,6 +100,8 @@ __all__ = [
     "compute_distance_matrix",
     "euclidean_distance",
     "geodesic_distance",
+    # Utilities
+    "site_pairs",
     # Plotting
     "plot_isplines",
     "plot_crps_comparison",

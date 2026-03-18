@@ -104,22 +104,20 @@ def crps_point(y_true, y_pred):
     """CRPS for a point forecast equals MAE."""
     return mae(y_true, y_pred)
 
-def crps_samples(y_true, samples_da, idx=None):
+def crps_samples(y_true, samples_da):
     """CRPS from a DataArray of posterior predictive samples (log scale → exp back)."""
     vals = np.exp(samples_da.values)
     sample_axis = list(samples_da.dims).index("sample")
     if sample_axis == 0:
         vals = vals.T  # → (n_obs, n_samples)
-    if idx is not None:
-        return crps_ensemble(np.asarray(y_true)[idx], vals[idx]).mean()
-    return crps_ensemble(y_true, vals).mean()
+    return crps_ensemble(np.asarray(y_true), vals).mean()
 
 
 # ---------------------------------------------------------------------------
 # 1. Frequentist GDM
 # ---------------------------------------------------------------------------
 if args.mode in ("freq", "both"):
-    from gdmbayes import GDM, PreprocessorConfig
+    from gdmbayes import GDM, PreprocessorConfig, site_pairs
     from sklearn.model_selection import KFold
 
     print("=" * 60)
@@ -143,14 +141,20 @@ if args.mode in ("freq", "both"):
     gdm.fit(X, y)
     y_pred_train = gdm.predict(X)
 
-    # 10-fold CV on site pairs (matches White et al. 2024 methodology)
+    # 10-fold site-level CV
+    n_sites = len(X)
     n_pairs = len(y)
     kf = KFold(n_splits=10, shuffle=True, random_state=42)
     y_pred_cv = np.full(n_pairs, np.nan)
-    for _, (train_idx, test_idx) in enumerate(kf.split(np.arange(n_pairs))):
+    for _, (train_sites, test_sites) in enumerate(kf.split(np.arange(n_sites))):
+        train_pair_idx = site_pairs(n_sites, train_sites)
+        test_pair_idx = site_pairs(n_sites, test_sites)
+        X_train = X.iloc[train_sites].reset_index(drop=True)
+        y_train = y[train_pair_idx]
+        X_test = X.iloc[test_sites].reset_index(drop=True)
         gdm_cv = make_gdm()
-        gdm_cv.fit(X, y, pair_subset=train_idx)
-        y_pred_cv[test_idx] = gdm_cv.predict(X)[test_idx]
+        gdm_cv.fit(X_train, y_train)
+        y_pred_cv[test_pair_idx] = gdm_cv.predict(X_test)
 
     r_train = rmse(y, y_pred_train)
     m_train = mae(y, y_pred_train)
@@ -180,7 +184,7 @@ if args.mode in ("freq", "both"):
 # 2. Bayesian spGDMM — 8 model configurations × 5-fold CV
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
-    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig
+    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs
     from sklearn.model_selection import KFold
 
     # Model grid matching White et al. (2024) Table 1 (Models 1-8)
@@ -199,6 +203,7 @@ if args.mode in ("bayes", "both"):
         [CONFIGS[args.config_idx]] if args.config_idx is not None else CONFIGS
     )
 
+    n_sites = len(X)
     n_pairs = len(y)
     # 5-fold CV for GCFR: each fit is ~2h so 5 × 8 = 40h total, split into array jobs
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
@@ -246,20 +251,24 @@ if args.mode in ("bayes", "both"):
             full_model.save(out_nc)
             print(f"  Full-data model saved to {out_nc}")
 
-        # --- 5-fold CV on site pairs ---
+        # --- 5-fold site-level CV ---
         y_pred_cv = np.full(n_pairs, np.nan)
         crps_vals = []
 
-        for fold, (train_idx, test_idx) in enumerate(kf.split(np.arange(n_pairs))):
-            print(f"  Fold {fold + 1}/5 — {len(train_idx)} train pairs, "
-                  f"{len(test_idx)} test pairs")
+        for fold, (train_sites, test_sites) in enumerate(kf.split(np.arange(n_sites))):
+            train_pair_idx = site_pairs(n_sites, train_sites)
+            test_pair_idx = site_pairs(n_sites, test_sites)
+            print(f"  Fold {fold + 1}/5 — {len(train_sites)} train sites "
+                  f"({len(train_pair_idx)} pairs), {len(test_sites)} test sites "
+                  f"({len(test_pair_idx)} pairs)")
+            X_train = X.iloc[train_sites].reset_index(drop=True)
+            y_train = y[train_pair_idx]
+            X_test = X.iloc[test_sites].reset_index(drop=True)
             cv_model = make_spgdmm()
-            cv_model.fit(X, y, pair_subset=train_idx)
-
-            samples_da = cv_model.predict_posterior(X, combined=True)
-            y_pred_all = np.exp(samples_da.mean(dim="sample").values)
-            y_pred_cv[test_idx] = y_pred_all[test_idx]
-            crps_vals.append(crps_samples(y, samples_da, idx=test_idx))
+            cv_model.fit(X_train, y_train)
+            samples_da = cv_model.predict_posterior(X_test, combined=True)
+            y_pred_cv[test_pair_idx] = np.exp(samples_da.mean(dim="sample").values)
+            crps_vals.append(crps_samples(y[test_pair_idx], samples_da))
 
         r_cv = rmse(y, y_pred_cv)
         m_cv = mae(y, y_pred_cv)
