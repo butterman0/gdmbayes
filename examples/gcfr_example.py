@@ -1,30 +1,26 @@
 """
-Southwest Australia GDM example
-================================
-Fits the frequentist GDM and the Bayesian spGDMM to the canonical southwest
-Australia dataset from the R gdm package, then compares performance metrics
-against the published benchmarks in White et al. (2024) Table 1.
+Greater Cape Floristic Region (GCFR) GDM example (White et al. 2024 dataset)
+=============================================================================
+Fits the frequentist GDM and the Bayesian spGDMM to the GCFR plant family
+survey data used by White et al. (2024) Table 1.
 
 Dataset
 -------
-94 sites in SW Australia, 865 plant species, 7 environmental predictors +
-geographic distance.  Bray-Curtis dissimilarities pre-computed from the R
-community matrix using vegan::vegdist.
+413 sites in the Greater Cape Floristic Region (South Africa), 52 plant
+families, 7 environmental predictors.  Coordinates: longitude/latitude.
+Source: White et al. (2024) Zenodo repository (https://zenodo.org/records/10091442)
+        file: GCFR_family.csv
 
-White et al. (2024) Table 1 benchmark on this dataset (SW Australia):
-  Ferrier (R gdm)   RMSE = 0.0737  MAE = 0.0549
-  Best spGDMM model RMSE = 0.0731  MAE = 0.0545
+White et al. (2024) Table 1 benchmarks (10-fold CV):
+  Ferrier (R gdm)              RMSE = 0.0786
+  Best spGDMM (Model 8)        CRPS = 0.0550  RMSE = 0.0822  MAE = 0.0618
+  Best spGDMM (Model 5)        CRPS = 0.0564  RMSE = 0.0859  MAE = 0.0640
+  spGDMM no-spatial (Model 1)  CRPS = 0.0590  RMSE = 0.0928  MAE = 0.0685
 
 Usage
 -----
-  # Frequentist only (fast, interactive):
-  python southwest_example.py --mode freq
-
-  # Bayesian (slow, meant for sbatch):
-  python southwest_example.py --mode bayes
-
-  # Both:
-  python southwest_example.py --mode both
+  python gcfr_example.py --mode freq
+  python gcfr_example.py --mode bayes --spatial abs_diff
 """
 
 import argparse
@@ -33,14 +29,12 @@ import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
+from scipy.spatial.distance import pdist
 from properscoring import crps_ensemble
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# ---------------------------------------------------------------------------
-# Parse arguments
-# ---------------------------------------------------------------------------
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["freq", "bayes", "both"], default="freq")
 parser.add_argument("--draws", type=int, default=1000)
@@ -48,36 +42,53 @@ parser.add_argument("--tune", type=int, default=1000)
 parser.add_argument("--chains", type=int, default=4)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--spatial", choices=["none", "abs_diff", "squared_diff"], default="none")
-parser.add_argument("--output_dir", type=str, default="results")
+parser.add_argument("--output_dir", type=str, default="results/gcfr")
 args = parser.parse_args()
 
 os.makedirs(args.output_dir, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Load data
+# Load data — White et al. (2024) GCFR dataset
 # ---------------------------------------------------------------------------
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
-sites = pd.read_csv(os.path.join(DATA_DIR, "southwest_sites.csv"))
-y_df = pd.read_csv(os.path.join(DATA_DIR, "southwest_y.csv"))
-y = y_df["y"].values
+gcfr = pd.read_csv(os.path.join(DATA_DIR, "gcfr_family.csv"))
 
-# White et al. (2024) R code uses only phTotal, bio5, bio19 (3 predictors)
-# with knots=1, deg=3 (df=4 per predictor). Coordinates: Long/Lat.
-ENV_PREDICTORS = ["phTotal", "bio5", "bio19"]
+# Match White et al. R code: location_mat = longitude/latitude,
+# envr_use = gmap, RFL_CONC, Elevation30m, HeatLoadIndex30m,
+#             tmean13c, SoilConductivitymSm, SoilTotalNPercent (7 predictors)
+ENV_PREDICTORS = [
+    "gmap", "RFL_CONC", "Elevation30m", "HeatLoadIndex30m",
+    "tmean13c", "SoilConductivitymSm", "SoilTotalNPercent",
+]
 
-X = sites.rename(columns={"Long": "xc", "Lat": "yc"}).copy()
-X["time_idx"] = 0
-X = X[["xc", "yc", "time_idx"] + ENV_PREDICTORS]
+FAMILY_COLS = [
+    c for c in gcfr.columns
+    if c not in ["plot", "longitude", "latitude"] + ENV_PREDICTORS
+    and c not in ["tminave01c", "tminave07c"]  # not used by White et al.
+]
 
-print(f"X shape: {X.shape}  (94 sites × {len(ENV_PREDICTORS)} predictors + coords)")
-print(f"y shape: {y.shape}  (4371 site pairs)")
+X = pd.DataFrame({
+    "xc":       gcfr["longitude"].values,
+    "yc":       gcfr["latitude"].values,
+    "time_idx": 0,
+})
+for col in ENV_PREDICTORS:
+    X[col] = gcfr[col].values
+
+# Bray-Curtis dissimilarities from family-level % cover matrix
+y = pdist(gcfr[FAMILY_COLS].values, metric="braycurtis")
+
+print(f"X shape: {X.shape}  ({len(gcfr)} sites × {len(ENV_PREDICTORS)} predictors + coords)")
+print(f"y shape: {y.shape}  ({len(y)} site pairs)")
 print(f"y range: [{y.min():.4f}, {y.max():.4f}]")
-print(f"y == 1.0: {(y == 1.0).sum()} pairs\n")
+print(f"y == 1.0: {(y == 1.0).sum()} pairs")
+print(f"N families: {len(FAMILY_COLS)}")
+for col in ENV_PREDICTORS:
+    print(f"  {col}: [{gcfr[col].min():.3f}, {gcfr[col].max():.3f}]")
+print()
 
-# ---------------------------------------------------------------------------
-# Metrics helpers
-# ---------------------------------------------------------------------------
+
 def rmse(y_true, y_pred):
     return np.sqrt(np.mean((y_true - y_pred) ** 2))
 
@@ -96,6 +107,7 @@ def crps_samples(y_true, samples_da):
         vals = vals.T  # → (n_obs, n_samples)
     return crps_ensemble(y_true, vals).mean()
 
+
 # ---------------------------------------------------------------------------
 # 1. Frequentist GDM
 # ---------------------------------------------------------------------------
@@ -104,70 +116,58 @@ if args.mode in ("freq", "both"):
     from sklearn.model_selection import KFold
 
     print("=" * 60)
-    print("FREQUENTIST GDM")
+    print("FREQUENTIST GDM — GCFR")
     print("=" * 60)
 
     def make_gdm():
         return GDM(
             geo=True,
             splines=3,
-            knots=1,  # White et al. used knots=1 (df = deg + knots = 4)
+            knots=2,  # White et al. used knots=2 for GCFR (df = deg + knots = 5)
             preprocessor_config=PreprocessorConfig(
                 deg=3,
-                knots=1,
+                knots=2,
                 mesh_choice="percentile",
                 distance_measure="geodesic",
             ),
         )
 
-    # --- Full-data fit (training metrics) ---
     gdm = make_gdm()
     gdm.fit(X, y)
     y_pred_train = gdm.predict(X)
 
-    # --- 10-fold CV on site pairs (matches White et al. 2024 methodology) ---
-    # Preprocessor is fitted on all sites; only NNLS uses the training pairs.
+    # 10-fold CV on site pairs (matches White et al. 2024 methodology)
     n_pairs = len(y)
     kf = KFold(n_splits=10, shuffle=True, random_state=42)
     y_pred_cv = np.full(n_pairs, np.nan)
-
-    for fold, (train_idx, test_idx) in enumerate(kf.split(np.arange(n_pairs))):
+    for _, (train_idx, test_idx) in enumerate(kf.split(np.arange(n_pairs))):
         gdm_cv = make_gdm()
         gdm_cv.fit(X, y, pair_subset=train_idx)
         y_pred_cv[test_idx] = gdm_cv.predict(X)[test_idx]
 
-    r_cv = rmse(y, y_pred_cv)
-    m_cv = mae(y, y_pred_cv)
-    c_cv = crps_point(y, y_pred_cv)
-
     r_train = rmse(y, y_pred_train)
     m_train = mae(y, y_pred_train)
     c_train = crps_point(y, y_pred_train)
+    r_cv = rmse(y, y_pred_cv)
+    m_cv = mae(y, y_pred_cv)
+    c_cv = crps_point(y, y_pred_cv)
     corr, _ = pearsonr(y, y_pred_train)
 
     print(f"\nDeviance explained (train) : {gdm.explained_:.4f}")
     print(f"RMSE (train)               : {r_train:.4f}")
     print(f"MAE  (train)               : {m_train:.4f}")
     print(f"CRPS (train)               : {c_train:.4f}  (= MAE for point forecast)")
-    print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.0737)")
-    print(f"MAE  (10-fold CV)          : {m_cv:.4f}  (White 2024 Ferrier: 0.0549)")
+    print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.0786)")
+    print(f"MAE  (10-fold CV)          : {m_cv:.4f}")
     print(f"CRPS (10-fold CV)          : {c_cv:.4f}  (= MAE for point forecast)")
     print(f"Pearson r (train)          : {corr:.4f}")
     print(f"\nPredictor importance:")
     for name, imp in gdm.predictor_importance_.items():
-        print(f"  {name:20s}  {imp:.4f}")
+        print(f"  {name:30s}  {imp:.4f}")
 
-    # Save results
     pd.DataFrame({"y_obs": y, "y_pred_train": y_pred_train, "y_pred_cv": y_pred_cv}).to_csv(
-        os.path.join(args.output_dir, "southwest_freq_predictions.csv"), index=False
+        os.path.join(args.output_dir, "gcfr_freq_predictions.csv"), index=False
     )
-    pd.DataFrame([{
-        "model": "gdmbayes GDM (frequentist)",
-        "RMSE_train": r_train, "MAE_train": m_train, "CRPS_train": c_train,
-        "RMSE_10fold_CV": r_cv, "MAE_10fold_CV": m_cv, "CRPS_10fold_CV": c_cv,
-        "Pearson_r": corr, "deviance_explained": gdm.explained_,
-    }]).to_csv(os.path.join(args.output_dir, "southwest_freq_summary.csv"), index=False)
-    print(f"\nResults saved to {args.output_dir}/")
 
 # ---------------------------------------------------------------------------
 # 2. Bayesian spGDMM
@@ -176,10 +176,10 @@ if args.mode in ("bayes", "both"):
     from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig
 
     print("=" * 60)
-    print(f"BAYESIAN spGDMM  (spatial_effect={args.spatial!r})")
+    print(f"BAYESIAN spGDMM — GCFR  (spatial_effect={args.spatial!r})")
     print("=" * 60)
 
-    out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{args.spatial}.nc")
+    out_nc = os.path.join(args.output_dir, f"gcfr_spgdmm_{args.spatial}.nc")
 
     if os.path.exists(out_nc):
         print(f"Loading saved model from {out_nc}")
@@ -188,7 +188,7 @@ if args.mode in ("bayes", "both"):
         model = spGDMM(
             preprocessor=PreprocessorConfig(
                 deg=3,
-                knots=1,
+                knots=2,  # White et al. used knots=2 for GCFR (df=5)
                 mesh_choice="percentile",
                 distance_measure="geodesic",
             ),
@@ -215,19 +215,17 @@ if args.mode in ("bayes", "both"):
     samples_da = model.predict_posterior(X, combined=True)
     y_pred_bayes = np.exp(samples_da.mean(dim="sample").values)
 
-    r_bayes = rmse(y, y_pred_bayes)
-    m_bayes = mae(y, y_pred_bayes)
-    c_bayes = crps_samples(y, samples_da)
+    r_b = rmse(y, y_pred_bayes)
+    m_b = mae(y, y_pred_bayes)
+    c_b = crps_samples(y, samples_da)
     corr_b, _ = pearsonr(y, y_pred_bayes)
 
-    print(f"\nRMSE (posterior mean): {r_bayes:.4f}")
-    print(f"MAE  (posterior mean): {m_bayes:.4f}")
-    print(f"CRPS                 : {c_bayes:.4f}")
-    print(f"Pearson r            : {corr_b:.4f}")
-
-    bayes_results = pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes})
-    bayes_results.to_csv(
-        os.path.join(args.output_dir, f"southwest_spgdmm_predictions_{args.spatial}.csv"),
+    print(f"\nRMSE: {r_b:.4f}")
+    print(f"MAE:  {m_b:.4f}")
+    print(f"CRPS: {c_b:.4f}")
+    print(f"r:    {corr_b:.4f}")
+    pd.DataFrame({"y_obs": y, "y_pred_bayes": y_pred_bayes}).to_csv(
+        os.path.join(args.output_dir, f"gcfr_spgdmm_predictions_{args.spatial}.csv"),
         index=False,
     )
 
