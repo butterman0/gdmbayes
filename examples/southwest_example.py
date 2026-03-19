@@ -262,14 +262,18 @@ if args.mode in ("bayes", "both"):
 
         # --- Full-data model (saved for response curves / paper figures) ---
         out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{tag}.nc")
-        if os.path.exists(out_nc):
-            print(f"  Full-data model: loading from {out_nc}")
-            full_model = spGDMM.load(out_nc)
-        else:
-            full_model = make_spgdmm()
-            full_model.fit(X, y)
-            full_model.save(out_nc)
-            print(f"  Full-data model saved to {out_nc}")
+        lock_path = out_nc + ".lock"
+        with open(lock_path, "w") as _lock_f:
+            import fcntl
+            fcntl.flock(_lock_f, fcntl.LOCK_EX)
+            if os.path.exists(out_nc):
+                print(f"  Full-data model: loading from {out_nc}")
+                full_model = spGDMM.load(out_nc)
+            else:
+                full_model = make_spgdmm()
+                full_model.fit(X, y)
+                full_model.save(out_nc)
+                print(f"  Full-data model saved to {out_nc}")
 
         # --- Site-level CV ---
         y_pred_cv = np.full(n_pairs, np.nan)
