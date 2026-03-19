@@ -12,11 +12,15 @@ Coordinates: UTM Zone 17N (EW, NS in metres).
 Source: White et al. (2024) Zenodo repository (https://zenodo.org/records/10091442)
         files: Panama_env.csv, Panama_species.csv
 
-White et al. (2024) Table 1 benchmarks (10-fold CV):
-  Ferrier (R gdm)              RMSE = 0.0716
-  Best spGDMM (Model 8)        CRPS = 0.0450  RMSE = 0.0821  MAE = 0.0618
-  Best spGDMM (Model 5)        CRPS = 0.0479  RMSE = 0.0879  MAE = 0.0654
-  spGDMM no-spatial (Model 1)  CRPS = 0.0527  RMSE = 0.0954  MAE = 0.0779
+White et al. (2024) Table 1 benchmarks (10-fold CV, BCI/Panama):
+  Ferrier (R gdm)                         RMSE = 0.0934  MAE = 0.0716
+  Model 1  none / homogeneous             CRPS = 0.0527  RMSE = 0.0954  MAE = 0.0779
+  Model 2  none / dist-variance           CRPS = 0.0511  RMSE = 0.0937  MAE = 0.0734
+  Model 4  abs_diff / homogeneous         CRPS = 0.0490  RMSE = 0.0878  MAE = 0.0690
+  Model 5  abs_diff / dist-variance       CRPS = 0.0479  RMSE = 0.0879  MAE = 0.0654
+  Model 7  squared_diff / homogeneous     CRPS = 0.0472  RMSE = 0.0856  MAE = 0.0658
+  Model 8  squared_diff / dist-variance   CRPS = 0.0450  RMSE = 0.0821  MAE = 0.0618  ← best CRPS
+  (Models 3/6 with polynomial variance not reported for Panama in Table 1)
 
 Usage
 -----
@@ -165,7 +169,7 @@ if args.mode in ("freq", "both"):
     print(f"RMSE (train)               : {r_train:.4f}")
     print(f"MAE  (train)               : {m_train:.4f}")
     print(f"CRPS (train)               : {c_train:.4f}  (= MAE for point forecast)")
-    print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.0716)")
+    print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.0934)")
     print(f"MAE  (10-fold CV)          : {m_cv:.4f}")
     print(f"CRPS (10-fold CV)          : {c_cv:.4f}  (= MAE for point forecast)")
     print(f"Pearson r (train)          : {corr:.4f}")

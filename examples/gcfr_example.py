@@ -11,11 +11,18 @@ families, 7 environmental predictors.  Coordinates: longitude/latitude.
 Source: White et al. (2024) Zenodo repository (https://zenodo.org/records/10091442)
         file: GCFR_family.csv
 
-White et al. (2024) Table 1 benchmarks (10-fold CV):
-  Ferrier (R gdm)              RMSE = 0.0786
-  Best spGDMM (Model 8)        CRPS = 0.0550  RMSE = 0.0822  MAE = 0.0618
-  Best spGDMM (Model 5)        CRPS = 0.0564  RMSE = 0.0859  MAE = 0.0640
-  spGDMM no-spatial (Model 1)  CRPS = 0.0590  RMSE = 0.0928  MAE = 0.0685
+White et al. (2024) Table 1 benchmarks (10-fold CV, GCFR family-level):
+  Naive                                   RMSE = 0.2075  MAE = 0.1711
+  Ferrier (R gdm)                         RMSE = 0.1922  MAE = 0.1569
+  Model 1  none / homogeneous             CRPS = 0.1104  RMSE = 0.1916  MAE = 0.1566
+  Model 2  none / dist-variance           CRPS = 0.1106  RMSE = 0.1919  MAE = 0.1568
+  Model 3  none / mean-variance           CRPS = 0.1110  RMSE = 0.1926  MAE = 0.1573
+  Model 4  abs_diff / homogeneous         CRPS = 0.0982  RMSE = 0.1701  MAE = 0.1350
+  Model 5  abs_diff / dist-variance       CRPS = 0.0972  RMSE = 0.1683  MAE = 0.1340  ← best RMSE/MAE
+  Model 6  abs_diff / mean-variance       CRPS = 0.0971  RMSE = 0.1698  MAE = 0.1342  ← best CRPS
+  Model 7  squared_diff / homogeneous     CRPS = 0.1016  RMSE = 0.1757  MAE = 0.1401
+  Model 8  squared_diff / dist-variance   CRPS = 0.1020  RMSE = 0.1763  MAE = 0.1413
+  Model 9  squared_diff / mean-variance   CRPS = 0.1045  RMSE = 0.1823  MAE = 0.1454
 
 Usage
 -----
@@ -176,7 +183,7 @@ if args.mode in ("freq", "both"):
     print(f"RMSE (train)               : {r_train:.4f}")
     print(f"MAE  (train)               : {m_train:.4f}")
     print(f"CRPS (train)               : {c_train:.4f}  (= MAE for point forecast)")
-    print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.0786)")
+    print(f"RMSE (10-fold CV)          : {r_cv:.4f}  (White 2024 Ferrier: 0.1922)")
     print(f"MAE  (10-fold CV)          : {m_cv:.4f}")
     print(f"CRPS (10-fold CV)          : {c_cv:.4f}  (= MAE for point forecast)")
     print(f"Pearson r (train)          : {corr:.4f}")
@@ -285,9 +292,9 @@ if args.mode in ("bayes", "both"):
         m_cv = mae(y[cv_mask], y_pred_cv[cv_mask])
         c_cv = float(np.mean(crps_vals))
 
-        print(f"\n  RMSE (5-fold CV): {r_cv:.4f}  (White 2024 Model 8 10-fold: 0.0822)")
-        print(f"  MAE  (5-fold CV): {m_cv:.4f}  (White 2024 Model 8 10-fold: 0.0618)")
-        print(f"  CRPS (5-fold CV): {c_cv:.4f}  (White 2024 Model 8 10-fold: 0.0550)")
+        print(f"\n  RMSE ({args.n_folds}-fold CV): {r_cv:.4f}  (White 2024 M5 best RMSE: 0.1683)")
+        print(f"  MAE  ({args.n_folds}-fold CV): {m_cv:.4f}  (White 2024 M5 best MAE:  0.1340)")
+        print(f"  CRPS ({args.n_folds}-fold CV): {c_cv:.4f}  (White 2024 M6 best CRPS: 0.0971)")
 
         pd.DataFrame({"y_obs": y, "y_pred_cv": y_pred_cv}).to_csv(
             os.path.join(args.output_dir, f"gcfr_spgdmm_{tag}_cv_predictions.csv"),

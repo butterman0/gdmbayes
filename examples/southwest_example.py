@@ -12,9 +12,15 @@ Dataset
 geographic distance.  Bray-Curtis dissimilarities pre-computed from the R
 community matrix using vegan::vegdist.
 
-White et al. (2024) Table 1 benchmark on this dataset (SW Australia):
-  Ferrier (R gdm)   RMSE = 0.0737  MAE = 0.0549
-  Best spGDMM model RMSE = 0.0731  MAE = 0.0545
+White et al. (2024) Table 1 benchmarks (10-fold CV, SW Australia):
+  Ferrier (R gdm)                         RMSE = 0.0737  MAE = 0.0549
+  Model 1  none / homogeneous             CRPS = 0.0439  RMSE = 0.0790  MAE = 0.0595
+  Model 2  none / dist-variance           CRPS = 0.0435  RMSE = 0.0805  MAE = 0.0608
+  Model 4  abs_diff / homogeneous         CRPS = 0.0473  RMSE = 0.0840  MAE = 0.0629
+  Model 5  abs_diff / dist-variance       CRPS = 0.0454  RMSE = 0.0820  MAE = 0.0626
+  Model 7  squared_diff / homogeneous     CRPS = 0.0414  RMSE = 0.0731  MAE = 0.0545  ← best RMSE/MAE
+  Model 8  squared_diff / dist-variance   CRPS = 0.0407  RMSE = 0.0748  MAE = 0.0556  ← best CRPS
+  (Models 3/6 with polynomial variance not reported for SW Australia in Table 1)
 
 Usage
 -----
@@ -290,8 +296,9 @@ if args.mode in ("bayes", "both"):
         m_cv = mae(y[cv_mask], y_pred_cv[cv_mask])
         c_cv = float(np.mean(crps_vals))
 
-        print(f"\n  RMSE (10-fold CV): {r_cv:.4f}  (White 2024 best: 0.0731)")
-        print(f"  MAE  (10-fold CV): {m_cv:.4f}  (White 2024 best: 0.0545)")
+        print(f"\n  RMSE (10-fold CV): {r_cv:.4f}  (White 2024 M7 best RMSE: 0.0731)")
+        print(f"  MAE  (10-fold CV): {m_cv:.4f}  (White 2024 M7 best MAE:  0.0545)")
+        print(f"  CRPS (10-fold CV): {c_cv:.4f}  (White 2024 M8 best CRPS: 0.0407)")
         print(f"  CRPS (10-fold CV): {c_cv:.4f}")
 
         # Save CV predictions
