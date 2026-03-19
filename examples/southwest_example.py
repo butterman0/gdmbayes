@@ -57,7 +57,7 @@ parser.add_argument("--chains", type=int, default=4)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument(
     "--config_idx", type=int, default=None,
-    help="Run only this config index (0-7).  Omit to run all 8 configs."
+    help="Run only this config index (0-8).  Omit to run all 9 configs."
 )
 parser.add_argument("--output_dir", type=str, default="results/southwest")
 parser.add_argument(
@@ -206,7 +206,7 @@ if args.mode in ("bayes", "both"):
     from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs
     from sklearn.model_selection import KFold
 
-    # Model grid matching White et al. (2024) Table 1 (Models 1-8)
+    # Model grid matching White et al. (2024) Table 1 (Models 1-9)
     CONFIGS = [
         dict(spatial_effect="none",          variance="homogeneous"),           # Model 1
         dict(spatial_effect="none",          variance="covariate_dependent"),   # Model 2
@@ -215,7 +215,8 @@ if args.mode in ("bayes", "both"):
         dict(spatial_effect="abs_diff",      variance="covariate_dependent"),   # Model 5
         dict(spatial_effect="abs_diff",      variance="polynomial"),            # Model 6
         dict(spatial_effect="squared_diff",  variance="homogeneous"),           # Model 7
-        dict(spatial_effect="squared_diff",  variance="covariate_dependent"),   # Model 8 (best)
+        dict(spatial_effect="squared_diff",  variance="covariate_dependent"),   # Model 8
+        dict(spatial_effect="squared_diff",  variance="polynomial"),            # Model 9
     ]
 
     # Allow running a single config via --config_idx (for SLURM array jobs)

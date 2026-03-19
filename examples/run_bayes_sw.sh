@@ -5,9 +5,9 @@
 #SBATCH --time=4:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=8
-#SBATCH --array=0-7
+#SBATCH --array=0-8
 
-# Array job: one task per model config (0-7).
+# Array job: one task per model config (0-8).
 # Each task runs 10-fold CV for one config (~20min/fit × 10 folds = ~3.5h).
 # Submit with: sbatch run_bayes_sw.sh
 
