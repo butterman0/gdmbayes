@@ -156,7 +156,7 @@ if args.mode in ("freq", "both"):
     # Site-level CV
     n_sites = len(X)
     n_pairs = len(y)
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    kf = KFold(n_splits=5, shuffle=True, random_state=args.seed)
     y_pred_cv = np.full(n_pairs, np.nan)
     for _, (train_sites, test_sites) in enumerate(
         itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
@@ -222,7 +222,7 @@ if args.mode in ("bayes", "both"):
     n_sites = len(X)
     n_pairs = len(y)
     # 5-fold CV for GCFR: each fit is ~2h so 5 × 8 = 40h total, split into array jobs
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    kf = KFold(n_splits=5, shuffle=True, random_state=args.seed)
 
     all_cv_metrics = []
 
@@ -298,13 +298,14 @@ if args.mode in ("bayes", "both"):
         print(f"  CRPS ({args.n_folds}-fold CV): {c_cv:.4f}  (White 2024 M6 best CRPS: 0.0971)")
 
         pd.DataFrame({"y_obs": y, "y_pred_cv": y_pred_cv}).to_csv(
-            os.path.join(args.output_dir, f"gcfr_spgdmm_{tag}_cv_predictions.csv"),
+            os.path.join(args.output_dir, f"gcfr_spgdmm_{tag}_cv_seed{args.seed}_predictions.csv"),
             index=False,
         )
 
         all_cv_metrics.append({
             "dataset": "GCFR",
             "config_tag": tag,
+            "seed": args.seed,
             "spatial_effect": cfg["spatial_effect"],
             "variance": cfg["variance"],
             "RMSE_CV": r_cv,
@@ -317,9 +318,15 @@ if args.mode in ("bayes", "both"):
 
     metrics_path = os.path.join(args.output_dir, "gcfr_cv_metrics.csv")
     new_df = pd.DataFrame(all_cv_metrics)
-    if os.path.exists(metrics_path) and args.config_idx is not None:
+    if os.path.exists(metrics_path):
         existing = pd.read_csv(metrics_path)
-        existing = existing[~existing["config_tag"].isin(new_df["config_tag"])]
+        if "seed" not in existing.columns:
+            existing["seed"] = 42  # backfill pre-seed runs
+        mask = ~(
+            existing["config_tag"].isin(new_df["config_tag"]) &
+            (existing["seed"] == args.seed)
+        )
+        existing = existing[mask]
         new_df = pd.concat([existing, new_df], ignore_index=True)
     new_df.to_csv(metrics_path, index=False)
     print(f"\nCV metrics saved to {metrics_path}")

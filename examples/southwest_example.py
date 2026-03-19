@@ -150,7 +150,7 @@ if args.mode in ("freq", "both"):
     # --- Site-level CV ---
     n_sites = len(X)
     n_pairs = len(y)
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    kf = KFold(n_splits=10, shuffle=True, random_state=args.seed)
     y_pred_cv = np.full(n_pairs, np.nan)
 
     for fold, (train_sites, test_sites) in enumerate(
@@ -226,7 +226,7 @@ if args.mode in ("bayes", "both"):
 
     n_sites = len(X)
     n_pairs = len(y)
-    kf = KFold(n_splits=10, shuffle=True, random_state=42)
+    kf = KFold(n_splits=10, shuffle=True, random_state=args.seed)
 
     all_cv_metrics = []
 
@@ -304,7 +304,7 @@ if args.mode in ("bayes", "both"):
 
         # Save CV predictions
         pd.DataFrame({"y_obs": y, "y_pred_cv": y_pred_cv}).to_csv(
-            os.path.join(args.output_dir, f"southwest_spgdmm_{tag}_cv_predictions.csv"),
+            os.path.join(args.output_dir, f"southwest_spgdmm_{tag}_cv_seed{args.seed}_predictions.csv"),
             index=False,
         )
 
@@ -312,6 +312,7 @@ if args.mode in ("bayes", "both"):
         all_cv_metrics.append({
             "dataset": "SW Australia",
             "config_tag": tag,
+            "seed": args.seed,
             "spatial_effect": cfg["spatial_effect"],
             "variance": cfg["variance"],
             "RMSE_CV": r_cv,
@@ -325,10 +326,15 @@ if args.mode in ("bayes", "both"):
     # Save all CV metrics to a single CSV (appending if running one config at a time)
     metrics_path = os.path.join(args.output_dir, "southwest_cv_metrics.csv")
     new_df = pd.DataFrame(all_cv_metrics)
-    if os.path.exists(metrics_path) and args.config_idx is not None:
+    if os.path.exists(metrics_path):
         existing = pd.read_csv(metrics_path)
-        # Replace rows with matching config_tag, or append new ones
-        existing = existing[~existing["config_tag"].isin(new_df["config_tag"])]
+        if "seed" not in existing.columns:
+            existing["seed"] = 42  # backfill pre-seed runs
+        mask = ~(
+            existing["config_tag"].isin(new_df["config_tag"]) &
+            (existing["seed"] == args.seed)
+        )
+        existing = existing[mask]
         new_df = pd.concat([existing, new_df], ignore_index=True)
     new_df.to_csv(metrics_path, index=False)
     print(f"\nCV metrics saved to {metrics_path}")

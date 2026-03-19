@@ -16,12 +16,13 @@ cd /cluster/home/haroldh/spgdmm/examples
 mkdir -p results/logs results/gcfr ~/.cache/arviz
 
 PYTHON=/cluster/home/haroldh/miniforge3/envs/spgdmm-test/bin/python
+SEED=${SEED:-42}
 
-echo "=== Bayesian spGDMM — GCFR  config_idx=${SLURM_ARRAY_TASK_ID} ==="
+echo "=== Bayesian spGDMM — GCFR  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED} ==="
 $PYTHON gcfr_example.py --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
-    --draws 1000 --tune 1000 --chains 4 --seed 42 \
+    --draws 1000 --tune 1000 --chains 4 --seed ${SEED} \
     --n_folds 1 \
     --output_dir results/gcfr
 
-echo "Done (config_idx=${SLURM_ARRAY_TASK_ID})."
+echo "Done (config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED})."
