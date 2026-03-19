@@ -554,12 +554,10 @@ class spGDMM(BaseEstimator):
         self : spGDMM
             The fitted estimator. Access inference data via ``self.idata``.
         """
-        self.sampler_config = {
-            **self.sampler_config,
-            "progressbar": progressbar,
-            "random_seed": random_seed,
-            **kwargs,
-        }
+        sampler_updates: dict = {"progressbar": progressbar, **kwargs}
+        if random_seed is not None:
+            sampler_updates["random_seed"] = random_seed
+        self.sampler_config = {**self.sampler_config, **sampler_updates}
 
         if y is None:
             y = np.zeros(X.shape[0])
