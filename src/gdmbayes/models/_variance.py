@@ -34,6 +34,7 @@ with the same signature to :class:`~gdmbayes.ModelConfig`:
 
 from typing import Callable, Dict
 
+import numpy as np
 import pymc as pm
 
 
@@ -48,13 +49,21 @@ def variance_homogeneous(mu, X_sigma):
 def variance_covariate_dependent(mu, X_sigma):
     """Variance as an exponential linear function of ``X_sigma``.
 
-    If ``X_sigma`` has at least one column, fits
-    ``sigma² = exp(X_sigma @ beta_sigma)`` with a Normal(0, 5) prior on
-    ``beta_sigma``.  Falls back to :func:`variance_homogeneous` when
-    ``X_sigma`` is None or empty.
+    If ``X_sigma`` is provided, fits ``sigma² = exp(X_sigma @ beta_sigma)``
+    with a Normal(0, 5) prior on ``beta_sigma``.  ``X_sigma`` may be a numpy
+    array or a PyMC ``pm.Data`` variable (shape ``(n_pairs, k)``).  The number
+    of columns ``k`` is read from the static shape when ``X_sigma`` is a
+    symbolic tensor, falling back to 1 (the default: pairwise geographic distance).
+    Falls back to :func:`variance_homogeneous` when ``X_sigma`` is None.
     """
-    if X_sigma is not None and X_sigma.shape[1] > 0:
-        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=X_sigma.shape[1])
+    if X_sigma is not None:
+        # Support both numpy arrays (shape known directly) and pm.Data tensors
+        # (static second-dim shape preserved by PyMC).
+        if isinstance(X_sigma, np.ndarray):
+            n_cols = X_sigma.shape[1]
+        else:
+            n_cols = getattr(X_sigma.type, "shape", (None, 1))[1] or 1
+        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=n_cols)
         return pm.math.exp(pm.math.dot(X_sigma, beta_sigma))
     return pm.InverseGamma("sigma2", alpha=1, beta=1)
 

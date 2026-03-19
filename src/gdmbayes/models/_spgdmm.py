@@ -348,7 +348,11 @@ class spGDMM(BaseEstimator):
                 if callable(self._config.variance)
                 else VARIANCE_FUNCTIONS[self._config.variance]
             )
-            sigma2 = variance_fn(mu, self.metadata.X_sigma)
+            if self.metadata.X_sigma is not None:
+                X_sigma_data = pm.Data("X_sigma_data", self.metadata.X_sigma)
+            else:
+                X_sigma_data = None
+            sigma2 = variance_fn(mu, X_sigma_data)
 
             if self._config.spatial_effect != "none":
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
@@ -440,6 +444,17 @@ class spGDMM(BaseEstimator):
             log_y = np.log(np.maximum(np.asarray(y, dtype=float), np.finfo(float).eps))
 
         set_data_dict: dict = {"X_data": X_transformed, "log_y_data": log_y}
+
+        # For covariate_dependent variance: update X_sigma_data with pairwise distances
+        # for the prediction sites so its shape matches X_data.
+        if self.metadata is not None and self.metadata.X_sigma is not None:
+            pred_locations = (
+                X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
+            )
+            pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
+            dist_mesh = self.preprocessor.dist_mesh_
+            pw_dist_pred = np.clip(pw_dist_pred, dist_mesh[0], dist_mesh[-1])
+            set_data_dict["X_sigma_data"] = pw_dist_pred.reshape(-1, 1)
 
         # For spatial models: recompute pair indices for the prediction sites so the
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
