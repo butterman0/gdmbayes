@@ -4,7 +4,7 @@
 #SBATCH --error=results/logs/bayes_sw_%A_%a.err
 #SBATCH --time=4:00:00
 #SBATCH --mem=32G
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --array=0-8
 
 # Array job: one task per model config (0-8).
