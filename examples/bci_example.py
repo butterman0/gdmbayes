@@ -169,7 +169,7 @@ if args.mode in ("bayes", "both"):
 
     # Full posterior predictive distribution (log scale → exp back to dissimilarity)
     samples_da = model.predict_posterior(X, combined=True)
-    y_pred_bayes = np.exp(samples_da.mean(dim="sample").values)
+    y_pred_bayes = np.exp(samples_da).mean(dim="sample").values
 
     r_b = rmse(y, y_pred_bayes)
     m_b = mae(y, y_pred_bayes)

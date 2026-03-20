@@ -274,7 +274,7 @@ if args.mode in ("bayes", "both"):
             cv_model = make_spgdmm()
             cv_model.fit(X_train, y_train)
             samples_da = cv_model.predict_posterior(X_test, combined=True)
-            y_pred_cv[test_pair_idx] = np.exp(samples_da.mean(dim="sample").values)
+            y_pred_cv[test_pair_idx] = np.exp(samples_da).mean(dim="sample").values
             crps_vals.append(crps_samples(y[test_pair_idx], samples_da))
 
         cv_mask = ~np.isnan(y_pred_cv)
