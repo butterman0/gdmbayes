@@ -42,6 +42,8 @@ class ModelMetadata:
     column_names: list      # feature-matrix column names
     X_sigma: np.ndarray | None   # pairwise distance column for variance model
     p_sigma: int            # 1 if X_sigma is used, 0 otherwise
+    d_mean: float           # mean of training pw_distance (for X_sigma standardisation)
+    d_std: float            # std  of training pw_distance (for X_sigma standardisation)
 
 
 @dataclass
@@ -244,6 +246,12 @@ class spGDMM(BaseEstimator):
         n_cols_env = I_spline_bases_diffs.shape[1] if I_spline_bases_diffs.size > 0 else 0
         n_cols_dist = dist_spline_bases.shape[1] if dist_spline_bases.size > 0 else 0
 
+        # Standardise pairwise distances before polynomial expansion to reduce
+        # collinearity in X_sigma (matching the intent of R's poly()).
+        d_mean = float(pw_dist_fit.mean())
+        d_std = float(pw_dist_fit.std()) + float(np.finfo(float).eps)
+        d_z = (pw_dist_fit - d_mean) / d_std
+
         self.metadata = ModelMetadata(
             no_sites_train=n_sites,
             no_predictors=n_predictors,
@@ -254,12 +262,14 @@ class spGDMM(BaseEstimator):
             predictors=predictor_names_from_data if n_predictors > 0 else [],
             column_names=[f"x_{i}" for i in range(X_GDM_fit.shape[1])],
             X_sigma=np.column_stack([
-                np.ones_like(pw_dist_fit),
-                pw_dist_fit,
-                pw_dist_fit ** 2,
-                pw_dist_fit ** 3,
+                np.ones_like(d_z),
+                d_z,
+                d_z ** 2,
+                d_z ** 3,
             ]) if n_predictors > 0 else None,
             p_sigma=1 if n_predictors > 0 else 0,
+            d_mean=d_mean,
+            d_std=d_std,
         )
 
         self.training_metadata = TrainingMetadata(
@@ -335,7 +345,7 @@ class spGDMM(BaseEstimator):
                     X_reshaped = X_env.reshape((-1, F, J))
                     warped = (X_reshaped * beta[None, :, :]).sum(axis=2)
 
-                    alpha = pm.HalfNormal("alpha", sigma=1, shape=F, dims=("feature",))
+                    alpha = pm.HalfNormal("alpha", sigma=2, shape=F, dims=("feature",))
                     mu = beta_0 + pm.math.dot(warped, alpha)
 
                     if n_cols_dist > 0:
@@ -459,11 +469,12 @@ class spGDMM(BaseEstimator):
             pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
             dist_mesh = self.preprocessor.dist_mesh_
             pw_dist_pred = np.clip(pw_dist_pred, dist_mesh[0], dist_mesh[-1])
+            d_z_pred = (pw_dist_pred - self.metadata.d_mean) / self.metadata.d_std
             set_data_dict["X_sigma_data"] = np.column_stack([
-                np.ones_like(pw_dist_pred),
-                pw_dist_pred,
-                pw_dist_pred ** 2,
-                pw_dist_pred ** 3,
+                np.ones_like(d_z_pred),
+                d_z_pred,
+                d_z_pred ** 2,
+                d_z_pred ** 3,
             ])
 
         # For spatial models: recompute pair indices for the prediction sites so the
