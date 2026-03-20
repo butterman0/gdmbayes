@@ -247,7 +247,7 @@ if args.mode in ("bayes", "both"):
                 model_config=ModelConfig(
                     variance=cfg["variance"],
                     spatial_effect=cfg["spatial_effect"],
-                    alpha_importance=True,
+                    alpha_importance=False,
                 ),
                 sampler_config=SamplerConfig(
                     draws=args.draws,

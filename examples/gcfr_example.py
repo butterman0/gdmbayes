@@ -57,8 +57,8 @@ parser.add_argument(
 )
 parser.add_argument("--output_dir", type=str, default="results/gcfr")
 parser.add_argument(
-    "--n_folds", type=int, default=5,
-    help="Number of CV folds to run (default 5).  Pass 1 to run only the first fold."
+    "--n_folds", type=int, default=10,
+    help="Number of CV folds to run (default 10).  Pass 1 to run only the first fold."
 )
 args = parser.parse_args()
 
@@ -156,7 +156,7 @@ if args.mode in ("freq", "both"):
     # Site-level CV
     n_sites = len(X)
     n_pairs = len(y)
-    kf = KFold(n_splits=5, shuffle=True, random_state=args.seed)
+    kf = KFold(n_splits=10, shuffle=True, random_state=args.seed)
     y_pred_cv = np.full(n_pairs, np.nan)
     for _, (train_sites, test_sites) in enumerate(
         itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
@@ -221,8 +221,8 @@ if args.mode in ("bayes", "both"):
 
     n_sites = len(X)
     n_pairs = len(y)
-    # 5-fold CV for GCFR: each fit is ~2h so 5 × 8 = 40h total, split into array jobs
-    kf = KFold(n_splits=5, shuffle=True, random_state=args.seed)
+    # 10-fold CV for GCFR: each fit is ~2h so 10 × 9 = 180h total, split into array jobs
+    kf = KFold(n_splits=10, shuffle=True, random_state=args.seed)
 
     all_cv_metrics = []
 
@@ -243,7 +243,7 @@ if args.mode in ("bayes", "both"):
                 model_config=ModelConfig(
                     variance=cfg["variance"],
                     spatial_effect=cfg["spatial_effect"],
-                    alpha_importance=True,
+                    alpha_importance=False,
                 ),
                 sampler_config=SamplerConfig(
                     draws=args.draws,

@@ -34,30 +34,64 @@ RESULTS_DIR = args.results_dir
 # ---------------------------------------------------------------------------
 WHITE_BENCHMARKS = [
     # SW Australia (94 sites, 3 predictors, knots=1)
+    dict(dataset="SW Australia", model="White: Naive", config_tag="naive",
+         RMSE_CV=0.0849, MAE_CV=0.0637, CRPS_CV=None),
     dict(dataset="SW Australia", model="White: Ferrier (R gdm)", config_tag="ferrier",
          RMSE_CV=0.0737, MAE_CV=0.0549, CRPS_CV=None),
-    dict(dataset="SW Australia", model="White: spGDMM best", config_tag="best",
-         RMSE_CV=0.0731, MAE_CV=0.0545, CRPS_CV=None),
+    dict(dataset="SW Australia", model="White: Model 1 (none/hom)", config_tag="none_homogeneous",
+         RMSE_CV=0.0790, MAE_CV=0.0595, CRPS_CV=0.0439),
+    dict(dataset="SW Australia", model="White: Model 2 (none/cov_dep)", config_tag="none_covariate_dependent",
+         RMSE_CV=0.0805, MAE_CV=0.0608, CRPS_CV=0.0435),
+    dict(dataset="SW Australia", model="White: Model 4 (abs_diff/hom)", config_tag="abs_diff_homogeneous",
+         RMSE_CV=0.0840, MAE_CV=0.0629, CRPS_CV=0.0473),
+    dict(dataset="SW Australia", model="White: Model 5 (abs_diff/cov_dep)", config_tag="abs_diff_covariate_dependent",
+         RMSE_CV=0.0820, MAE_CV=0.0626, CRPS_CV=0.0454),
+    dict(dataset="SW Australia", model="White: Model 7 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
+         RMSE_CV=0.0731, MAE_CV=0.0545, CRPS_CV=0.0414),
+    dict(dataset="SW Australia", model="White: Model 8 (sq_diff/cov_dep)", config_tag="squared_diff_covariate_dependent",
+         RMSE_CV=0.0748, MAE_CV=0.0556, CRPS_CV=0.0407),
 
     # Panama (39 sites, 2 predictors, knots=1)
+    dict(dataset="Panama", model="White: Naive", config_tag="naive",
+         RMSE_CV=0.1082, MAE_CV=0.0877, CRPS_CV=None),
     dict(dataset="Panama", model="White: Ferrier (R gdm)", config_tag="ferrier",
-         RMSE_CV=0.0716, MAE_CV=None, CRPS_CV=None),
-    dict(dataset="Panama", model="White: spGDMM Model 1 (none/hom)", config_tag="none_homogeneous",
+         RMSE_CV=0.0934, MAE_CV=0.0716, CRPS_CV=None),
+    dict(dataset="Panama", model="White: Model 1 (none/hom)", config_tag="none_homogeneous",
          RMSE_CV=0.0954, MAE_CV=0.0779, CRPS_CV=0.0527),
-    dict(dataset="Panama", model="White: spGDMM Model 5 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
+    dict(dataset="Panama", model="White: Model 2 (none/cov_dep)", config_tag="none_covariate_dependent",
+         RMSE_CV=0.0949, MAE_CV=0.0774, CRPS_CV=0.0522),
+    dict(dataset="Panama", model="White: Model 4 (abs_diff/hom)", config_tag="abs_diff_homogeneous",
+         RMSE_CV=0.0909, MAE_CV=0.0683, CRPS_CV=0.0502),
+    dict(dataset="Panama", model="White: Model 5 (abs_diff/cov_dep)", config_tag="abs_diff_covariate_dependent",
          RMSE_CV=0.0879, MAE_CV=0.0654, CRPS_CV=0.0479),
-    dict(dataset="Panama", model="White: spGDMM Model 8 (sq_diff/cov_dep)", config_tag="best",
+    dict(dataset="Panama", model="White: Model 7 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
+         RMSE_CV=0.0842, MAE_CV=0.0633, CRPS_CV=0.0468),
+    dict(dataset="Panama", model="White: Model 8 (sq_diff/cov_dep)", config_tag="squared_diff_covariate_dependent",
          RMSE_CV=0.0821, MAE_CV=0.0618, CRPS_CV=0.0450),
 
-    # GCFR (413 sites, 7 predictors, knots=2)
+    # GCFR Family (413 sites, 7 predictors, knots=2)
+    dict(dataset="GCFR", model="White: Naive", config_tag="naive",
+         RMSE_CV=0.2075, MAE_CV=0.1711, CRPS_CV=None),
     dict(dataset="GCFR", model="White: Ferrier (R gdm)", config_tag="ferrier",
-         RMSE_CV=0.0786, MAE_CV=None, CRPS_CV=None),
-    dict(dataset="GCFR", model="White: spGDMM Model 1 (none/hom)", config_tag="none_homogeneous",
-         RMSE_CV=0.0928, MAE_CV=0.0685, CRPS_CV=0.0590),
-    dict(dataset="GCFR", model="White: spGDMM Model 5 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
-         RMSE_CV=0.0859, MAE_CV=0.0640, CRPS_CV=0.0564),
-    dict(dataset="GCFR", model="White: spGDMM Model 8 (sq_diff/cov_dep)", config_tag="best",
-         RMSE_CV=0.0822, MAE_CV=0.0618, CRPS_CV=0.0550),
+         RMSE_CV=0.1922, MAE_CV=0.1569, CRPS_CV=None),
+    dict(dataset="GCFR", model="White: Model 1 (none/hom)", config_tag="none_homogeneous",
+         RMSE_CV=0.1916, MAE_CV=0.1566, CRPS_CV=0.1104),
+    dict(dataset="GCFR", model="White: Model 2 (none/cov_dep)", config_tag="none_covariate_dependent",
+         RMSE_CV=0.1919, MAE_CV=0.1568, CRPS_CV=0.1106),
+    dict(dataset="GCFR", model="White: Model 3 (none/poly)", config_tag="none_polynomial",
+         RMSE_CV=0.1926, MAE_CV=0.1573, CRPS_CV=0.1110),
+    dict(dataset="GCFR", model="White: Model 4 (abs_diff/hom)", config_tag="abs_diff_homogeneous",
+         RMSE_CV=0.1701, MAE_CV=0.1350, CRPS_CV=0.0982),
+    dict(dataset="GCFR", model="White: Model 5 (abs_diff/cov_dep)", config_tag="abs_diff_covariate_dependent",
+         RMSE_CV=0.1683, MAE_CV=0.1340, CRPS_CV=0.0972),
+    dict(dataset="GCFR", model="White: Model 6 (abs_diff/poly)", config_tag="abs_diff_polynomial",
+         RMSE_CV=0.1698, MAE_CV=0.1342, CRPS_CV=0.0971),
+    dict(dataset="GCFR", model="White: Model 7 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
+         RMSE_CV=0.1757, MAE_CV=0.1401, CRPS_CV=0.1016),
+    dict(dataset="GCFR", model="White: Model 8 (sq_diff/cov_dep)", config_tag="squared_diff_covariate_dependent",
+         RMSE_CV=0.1763, MAE_CV=0.1413, CRPS_CV=0.1020),
+    dict(dataset="GCFR", model="White: Model 9 (sq_diff/poly)", config_tag="squared_diff_polynomial",
+         RMSE_CV=0.1823, MAE_CV=0.1454, CRPS_CV=0.1045),
 ]
 
 rows = list(WHITE_BENCHMARKS)
@@ -161,7 +195,7 @@ for _, row in df.iterrows():
 print("=" * 100)
 print("Notes:")
 print("  White et al. metrics: 10-fold CV on pairs; posterior-mean point prediction.")
-print("  gdmbayes Bayesian:    10-fold CV (SW/Panama) or 5-fold (GCFR) on pairs.")
+print("  gdmbayes Bayesian:    10-fold CV on pairs.")
 print("  CRPS for frequentist = MAE (point forecast is a degenerate distribution).")
 print()
 
