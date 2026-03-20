@@ -63,7 +63,7 @@ def variance_covariate_dependent(mu, X_sigma):
             n_cols = X_sigma.shape[1]
         else:
             n_cols = getattr(X_sigma.type, "shape", (None, 1))[1] or 1
-        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=n_cols)
+        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=10, shape=n_cols)
         return pm.math.exp(pm.math.dot(X_sigma, beta_sigma))
     return pm.InverseGamma("sigma2", alpha=1, beta=1)
 
@@ -74,7 +74,7 @@ def variance_polynomial(mu, X_sigma):
     Fits ``sigma² = exp(b0 + b1*mu + b2*mu² + b3*mu³)`` with
     Normal(0, 5) priors on all four coefficients.
     """
-    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=5, shape=4)
+    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=10, shape=4)
     return pm.math.exp(
         beta_sigma[0] + beta_sigma[1] * mu +
         beta_sigma[2] * mu ** 2 +

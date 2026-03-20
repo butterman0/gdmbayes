@@ -41,7 +41,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
     I_spline_bases_ : np.ndarray of shape (n_sites, n_predictors * n_spline_bases)
         Per-site I-spline basis values computed during training.
     length_scale_ : float
-        Median pairwise distance used as GP spatial length scale.
+        GP spatial length scale, set to max(pairwise distance) / 10.
     n_predictors_ : int
         Number of environmental predictors.
     n_spline_bases_ : int
@@ -165,7 +165,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         else:
             I_spline_bases = np.empty((n_sites, 0))
 
-        length_scale = float(np.median(pw_distance)) if len(pw_distance) > 0 else 100.0
+        length_scale = float(np.max(pw_distance) / 10) if len(pw_distance) > 0 else 100.0
 
         # Store fitted state
         self.predictor_mesh_ = predictor_mesh

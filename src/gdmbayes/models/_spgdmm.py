@@ -253,7 +253,12 @@ class spGDMM(BaseEstimator):
             no_cols_dist=n_cols_dist,
             predictors=predictor_names_from_data if n_predictors > 0 else [],
             column_names=[f"x_{i}" for i in range(X_GDM_fit.shape[1])],
-            X_sigma=pw_dist_fit.reshape(-1, 1) if n_predictors > 0 else None,
+            X_sigma=np.column_stack([
+                np.ones_like(pw_dist_fit),
+                pw_dist_fit,
+                pw_dist_fit ** 2,
+                pw_dist_fit ** 3,
+            ]) if n_predictors > 0 else None,
             p_sigma=1 if n_predictors > 0 else 0,
         )
 
@@ -335,12 +340,12 @@ class spGDMM(BaseEstimator):
 
                     if n_cols_dist > 0:
                         dist_cols = X_data[:, n_cols_env:]
-                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=1, shape=n_cols_dist)
+                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=10, shape=n_cols_dist)
                         mu = mu + pm.math.dot(dist_cols, beta_dist)
                 else:
                     mu = beta_0
             else:
-                beta = pm.LogNormal("beta", mu=0, sigma=1, shape=self.metadata.no_cols)
+                beta = pm.LogNormal("beta", mu=0, sigma=10, shape=self.metadata.no_cols)
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
             variance_fn = (
@@ -357,7 +362,7 @@ class spGDMM(BaseEstimator):
             if self._config.spatial_effect != "none":
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
                 location_values = self.training_metadata.location_values_train
-                length_scale = self.training_metadata.length_scale / 2
+                length_scale = self.training_metadata.length_scale
 
                 cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale)
                 gp = pm.gp.Latent(cov_func=cov)
@@ -454,7 +459,12 @@ class spGDMM(BaseEstimator):
             pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
             dist_mesh = self.preprocessor.dist_mesh_
             pw_dist_pred = np.clip(pw_dist_pred, dist_mesh[0], dist_mesh[-1])
-            set_data_dict["X_sigma_data"] = pw_dist_pred.reshape(-1, 1)
+            set_data_dict["X_sigma_data"] = np.column_stack([
+                np.ones_like(pw_dist_pred),
+                pw_dist_pred,
+                pw_dist_pred ** 2,
+                pw_dist_pred ** 3,
+            ])
 
         # For spatial models: recompute pair indices for the prediction sites so the
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
