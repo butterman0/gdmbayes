@@ -59,10 +59,6 @@ def variance_covariate_dependent(mu, X_sigma):
     overflow during nutpie initialization.
     Falls back to :func:`variance_homogeneous` when ``X_sigma`` is None.
 
-    Note: White et al. (2024) use Normal(0, sd=10) priors but supply hand-crafted
-    initial values to NIMBLE.  Nutpie uses jittered initialization, so we use
-    sd=2 (limiting sigma² to exp(±8) ≈ [3e-4, 3000]) to avoid degenerate
-    high-variance posteriors where the likelihood becomes flat.
     """
     if X_sigma is not None:
         # Support both numpy arrays (shape known directly) and pm.Data/symbolic
@@ -71,7 +67,7 @@ def variance_covariate_dependent(mu, X_sigma):
             n_cols = X_sigma.shape[1]
         else:
             n_cols = int(X_sigma.shape.eval()[1])
-        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=2, shape=n_cols)
+        beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=10, shape=n_cols)
         return pm.math.exp(pt.clip(pm.math.dot(X_sigma, beta_sigma), -20, 20))
     return pm.InverseGamma("sigma2", alpha=1, beta=1)
 
@@ -83,11 +79,8 @@ def variance_polynomial(mu, X_sigma):
     Normal(0, 2) priors on all four coefficients.  The polynomial is clipped
     to [-20, 20] before exp() to prevent overflow during nutpie initialization.
 
-    Note: White et al. (2024) use Normal(0, sd=10) priors but supply
-    hand-crafted initial values to NIMBLE.  We use sd=2 to avoid degenerate
-    high-variance posteriors; see variance_covariate_dependent for details.
     """
-    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=2, shape=4)
+    beta_sigma = pm.Normal("beta_sigma", mu=0, sigma=10, shape=4)
     poly = (
         beta_sigma[0] + beta_sigma[1] * mu +
         beta_sigma[2] * mu ** 2 +
