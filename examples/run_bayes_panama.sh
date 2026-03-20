@@ -2,13 +2,14 @@
 #SBATCH --job-name=gdm-bayes-panama
 #SBATCH --output=results/logs/bayes_panama_%A_%a.out
 #SBATCH --error=results/logs/bayes_panama_%A_%a.err
-#SBATCH --time=4:00:00
+#SBATCH --time=12:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --array=0-8
 
 # Array job: one task per model config (0-8).
-# Each task runs 10-fold CV for one config (~5min/fit × 10 folds = ~1h).
+# Each task runs 10-fold CV for one config.
+# Non-spatial: ~5min/fit × 11 fits = ~1h.  Spatial: ~15min/fit × 11 fits = ~3h.
 # Submit with: sbatch run_bayes_panama.sh
 
 set -e
