@@ -535,16 +535,22 @@ class spGDMM(BaseEstimator):
     # ------------------------------------------------------------------ #
 
     def _compute_initvals(self):
-        """Compute initial values matching White et al. (2024) NIMBLE code.
+        """Compute initial values via two-stage BFGS optimization.
 
-        Runs BFGS on ``sum((log_y - beta_0 - X @ exp(log_beta))^2)`` to get
-        reasonable starting values for ``beta_0`` and ``beta``.  For
-        ``beta_sigma``, uses White et al.'s hardcoded ``[-5, -20, 12, 2]``
-        (polynomial) or ``[0]`` (covariate_dependent).
+        **Stage 1** (mean model): BFGS on ``sum((log_y - beta_0 - X @ exp(log_beta))^2)``
+        for ``beta_0`` and ``beta``, assuming constant variance.
 
-        The BFGS optimization only applies when ``alpha_importance=False``
-        (flat LogNormal beta).  With ``alpha_importance=True``, beta is a
-        Dirichlet and the OLS-based init is not applicable.
+        **Stage 2** (variance model): Profile NLL optimization for ``beta_sigma``,
+        holding the stage-1 mean parameters fixed.  Minimises the Gaussian
+        negative log-likelihood with heterogeneous variance::
+
+            NLL = 0.5 * sum(r^2 / sigma2 + log(sigma2))
+
+        where ``r = log_y - mu_fixed`` and ``sigma2 = exp(linear_predictor)``.
+
+        Both stages only apply when ``alpha_importance=False`` (flat LogNormal
+        beta).  With ``alpha_importance=True``, beta is Dirichlet and the
+        OLS/BFGS init is not applicable.
         """
         from scipy.optimize import minimize
 
@@ -554,9 +560,8 @@ class spGDMM(BaseEstimator):
 
         initvals = {}
 
-        # BFGS initialization only applies for flat LogNormal beta
-        # (alpha_importance=False).  With alpha_importance=True, beta is
-        # Dirichlet-shaped (F, J) and needs no special initialization.
+        # Stage 1: mean model (beta_0, beta) via squared-error BFGS.
+        # Only applies for flat LogNormal beta (alpha_importance=False).
         if not self._config.alpha_importance:
             from numpy.linalg import lstsq
             A = np.column_stack([np.ones(len(log_y)), X_GDM])
@@ -577,18 +582,67 @@ class spGDMM(BaseEstimator):
             initvals["beta_0"] = float(res.x[0])
             initvals["beta"] = np.exp(res.x[1:])
 
+        # Stage 2: variance model (beta_sigma) via profile NLL.
         var_names = [v.name for v in self.model.free_RVs]
-        if "beta_sigma_raw" in var_names:
-            # Non-centered parameterization: beta_sigma = 10 * beta_sigma_raw,
-            # so beta_sigma_raw = beta_sigma_init / 10.
+        if "beta_sigma_raw" in var_names and not self._config.alpha_importance:
             beta_sigma_raw_var = self.model["beta_sigma_raw"]
-            n_sigma = beta_sigma_raw_var.type.shape[0] or 1
-            if n_sigma == 4:
-                # Polynomial variance: White et al. uses [-5, -20, 12, 2]
-                initvals["beta_sigma_raw"] = np.array([-5.0, -20.0, 12.0, 2.0]) / 10.0
+            n_sigma = beta_sigma_raw_var.type.shape[0] or 4
+
+            mu_fixed = initvals["beta_0"] + X_GDM @ initvals["beta"]
+            residuals = log_y - mu_fixed
+
+            variance_type = (
+                self._config.variance
+                if isinstance(self._config.variance, str)
+                else "custom"
+            )
+
+            def _profile_nll(beta_sigma, linear_pred_fn):
+                """Gaussian NLL with heterogeneous variance."""
+                lp = np.clip(linear_pred_fn(beta_sigma), -20, 20)
+                return 0.5 * np.sum(residuals ** 2 * np.exp(-lp) + lp)
+
+            beta_sigma_init = None
+
+            if variance_type == "covariate_dependent" and self.metadata.X_sigma is not None:
+                X_sig = self.metadata.X_sigma
+                res_sigma = minimize(
+                    _profile_nll, np.zeros(n_sigma), args=(lambda bs: X_sig @ bs,),
+                    method="BFGS",
+                )
+                if res_sigma.success:
+                    beta_sigma_init = res_sigma.x
+
+            elif variance_type == "polynomial":
+                def poly_linear(bs):
+                    return bs[0] + bs[1] * mu_fixed + bs[2] * mu_fixed ** 2 + bs[3] * mu_fixed ** 3
+
+                # Try from zeros first; fall back to White et al. values if it fails.
+                res_sigma = minimize(
+                    _profile_nll, np.zeros(n_sigma), args=(poly_linear,),
+                    method="BFGS",
+                )
+                if res_sigma.success:
+                    beta_sigma_init = res_sigma.x
+                else:
+                    res_sigma = minimize(
+                        _profile_nll, np.array([-5.0, -20.0, 12.0, 2.0]),
+                        args=(poly_linear,), method="BFGS",
+                    )
+                    if res_sigma.success:
+                        beta_sigma_init = res_sigma.x
+
+            # Non-centered: beta_sigma = 10 * beta_sigma_raw
+            if beta_sigma_init is not None:
+                initvals["beta_sigma_raw"] = beta_sigma_init / 10.0
             else:
-                # Covariate-dependent: start at 0 (sigma2 = exp(0) = 1)
                 initvals["beta_sigma_raw"] = np.zeros(n_sigma)
+
+        elif "beta_sigma_raw" in var_names:
+            # alpha_importance=True or custom variance: use zeros.
+            beta_sigma_raw_var = self.model["beta_sigma_raw"]
+            n_sigma = beta_sigma_raw_var.type.shape[0] or 4
+            initvals["beta_sigma_raw"] = np.zeros(n_sigma)
 
         if "sigma2" in var_names:
             initvals["sigma2"] = 1.0
@@ -601,12 +655,15 @@ class spGDMM(BaseEstimator):
     def _sample_model(self, **kwargs) -> az.InferenceData:
         """Sample from the PyMC model.
 
-        Uses White et al. (2024) BFGS-based initial values for ``beta_0``
-        and ``beta``, and their hardcoded init for ``beta_sigma``.
+        Uses BFGS-based initial values for ``beta_0``, ``beta``, and
+        ``beta_sigma``.
 
-        For nutpie, initvals are passed via ``nuts_sampler_kwargs["init_mean"]``
-        in the unconstrained (transformed) parameter space, since nutpie silently
-        ignores the standard ``initvals`` argument.
+        For nutpie, initvals are injected by replacing the compiled model's
+        ``initial_point_func`` via ``dataclasses.replace``, since nutpie
+        ignores both ``initvals`` and ``init_mean`` kwargs in current
+        versions (tested with nutpie 0.16.7).  When using nutpie, the
+        model is compiled and sampled directly (bypassing ``pm.sample``)
+        to enable this override.
         """
         if self.model is None:
             raise RuntimeError(
@@ -615,37 +672,105 @@ class spGDMM(BaseEstimator):
         with self.model:
             sampler_args = {**self.sampler_config, **kwargs}
 
-            # Compute White et al. initial values (constrained space)
+            # Compute initial values (constrained space)
             initvals = self._compute_initvals()
 
             is_nutpie = sampler_args.get("nuts_sampler", "pymc") == "nutpie"
 
             if is_nutpie:
-                # nutpie ignores `initvals` — pass via nuts_sampler_kwargs["init_mean"]
-                # in the unconstrained (transformed) parameter space.
-                unconstrained = {}
-                for rv in self.model.free_RVs:
-                    if rv.name not in initvals:
-                        continue
-                    value_var = self.model.rvs_to_values[rv]
-                    transform = self.model.rvs_to_transforms.get(rv, None)
-                    val = np.asarray(initvals[rv.name], dtype=np.float64)
-                    if transform is not None:
-                        unconstrained[value_var.name] = transform.forward(val).eval()
-                    else:
-                        unconstrained[value_var.name] = val
-
-                sampler_args.setdefault("nuts_sampler_kwargs", {})
-                sampler_args["nuts_sampler_kwargs"]["init_mean"] = unconstrained
+                idata = self._sample_nutpie(sampler_args, initvals)
             else:
                 sampler_args["initvals"] = initvals
-
-            idata = pm.sample(**sampler_args)
+                idata = pm.sample(**sampler_args)
 
             idata.extend(pm.sample_prior_predictive(), join="right")
             idata.extend(pm.sample_posterior_predictive(idata), join="right")
 
         idata = self._set_idata_attrs(idata)
+        return idata
+
+    def _sample_nutpie(self, sampler_args: dict, initvals: dict) -> az.InferenceData:
+        """Sample via nutpie with custom initial values.
+
+        Compiles the model directly with nutpie and injects ``initvals`` by
+        replacing the compiled model's ``initial_point_func``.  This bypasses
+        ``pm.sample(nuts_sampler="nutpie")`` because nutpie 0.16.x ignores
+        both the ``initvals`` and ``init_mean`` parameters.
+
+        Post-processing (constant_data, observed_data, coords) replicates
+        what PyMC's ``_sample_external_nuts`` does.
+        """
+        import nutpie
+        from dataclasses import replace as dc_replace
+        from pymc.backends.arviz import (
+            coords_and_dims_for_inferencedata,
+            find_constants,
+            find_observations,
+        )
+        from arviz import dict_to_dataset
+
+        # --- Convert constrained initvals to unconstrained 1-D array ---
+        unconstrained = {}
+        for rv in self.model.free_RVs:
+            if rv.name not in initvals:
+                continue
+            value_var = self.model.rvs_to_values[rv]
+            transform = self.model.rvs_to_transforms.get(rv, None)
+            val = np.asarray(initvals[rv.name], dtype=np.float64)
+            if transform is not None:
+                unconstrained[value_var.name] = transform.forward(val).eval()
+            else:
+                unconstrained[value_var.name] = val
+
+        default_ip = self.model.initial_point()
+        for key in unconstrained:
+            if key in default_ip:
+                default_ip[key] = unconstrained[key]
+        init_array = np.concatenate([
+            np.atleast_1d(np.asarray(v, dtype=np.float64))
+            for v in default_ip.values()
+        ])
+
+        # --- Compile and inject initial_point_func ---
+        compiled = nutpie.compile_pymc_model(self.model)
+        compiled = dc_replace(
+            compiled,
+            initial_point_func=lambda *args, **kwargs: init_array,
+        )
+
+        # --- Sample ---
+        seed = sampler_args.get("random_seed", None)
+        idata = nutpie.sample(
+            compiled,
+            draws=sampler_args.get("draws", 1000),
+            tune=sampler_args.get("tune", 1000),
+            chains=sampler_args.get("chains", 4),
+            target_accept=sampler_args.get("target_accept", 0.95),
+            seed=seed,
+            progress_bar=sampler_args.get("progressbar", True),
+        )
+
+        # --- Post-processing (replicates PyMC's _sample_external_nuts) ---
+        coords, dims = coords_and_dims_for_inferencedata(self.model)
+        constant_data = dict_to_dataset(
+            find_constants(self.model),
+            library=pm,
+            coords=coords,
+            dims=dims,
+            default_dims=[],
+        )
+        observed_data = dict_to_dataset(
+            find_observations(self.model),
+            library=pm,
+            coords=coords,
+            dims=dims,
+            default_dims=[],
+        )
+        idata.add_groups(
+            {"constant_data": constant_data, "observed_data": observed_data},
+            coords=coords,
+            dims=dims,
+        )
         return idata
 
     def _set_idata_attrs(self, idata: az.InferenceData | None = None) -> az.InferenceData:
