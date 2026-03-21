@@ -44,6 +44,7 @@ class ModelMetadata:
     p_sigma: int            # 1 if X_sigma is used, 0 otherwise
     d_mean: float           # mean of training pw_distance (for X_sigma standardisation)
     d_std: float            # std  of training pw_distance (for X_sigma standardisation)
+    poly_transform: np.ndarray | None  # R_inv from QR of Vandermonde; maps raw monomials to orthogonal basis
 
 
 @dataclass
@@ -252,6 +253,24 @@ class spGDMM(BaseEstimator):
         d_std = float(pw_dist_fit.std()) + float(np.finfo(float).eps)
         d_z = (pw_dist_fit - d_mean) / d_std
 
+        # Build orthogonal polynomial basis for X_sigma via QR decomposition.
+        # Raw monomials [1, d_z, d_z², d_z³] have wildly different column
+        # variances (d_z³ can be ~4x the scale of d_z), creating an anisotropic
+        # posterior that hampers NUTS.  QR-orthogonalizing yields columns with
+        # equal norm and zero correlation, making the beta_sigma parameter space
+        # isotropic without changing the model's expressive power.
+        if n_predictors > 0:
+            V = np.column_stack([
+                np.ones_like(d_z), d_z, d_z ** 2, d_z ** 3,
+            ])
+            Q, R = np.linalg.qr(V)
+            R_inv = np.linalg.inv(R)
+            X_sigma = Q
+            poly_transform = R_inv
+        else:
+            X_sigma = None
+            poly_transform = None
+
         self.metadata = ModelMetadata(
             no_sites_train=n_sites,
             no_predictors=n_predictors,
@@ -261,15 +280,11 @@ class spGDMM(BaseEstimator):
             no_cols_dist=n_cols_dist,
             predictors=predictor_names_from_data if n_predictors > 0 else [],
             column_names=[f"x_{i}" for i in range(X_GDM_fit.shape[1])],
-            X_sigma=np.column_stack([
-                np.ones_like(d_z),
-                d_z,
-                d_z ** 2,
-                d_z ** 3,
-            ]) if n_predictors > 0 else None,
+            X_sigma=X_sigma,
             p_sigma=1 if n_predictors > 0 else 0,
             d_mean=d_mean,
             d_std=d_std,
+            poly_transform=poly_transform,
         )
 
         self.training_metadata = TrainingMetadata(
@@ -350,12 +365,12 @@ class spGDMM(BaseEstimator):
 
                     if n_cols_dist > 0:
                         dist_cols = X_data[:, n_cols_env:]
-                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=2, shape=n_cols_dist)
+                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=10, shape=n_cols_dist)
                         mu = mu + pm.math.dot(dist_cols, beta_dist)
                 else:
                     mu = beta_0
             else:
-                beta = pm.LogNormal("beta", mu=0, sigma=2, shape=self.metadata.no_cols)
+                beta = pm.LogNormal("beta", mu=0, sigma=10, shape=self.metadata.no_cols)
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
             variance_fn = (
@@ -470,12 +485,14 @@ class spGDMM(BaseEstimator):
             dist_mesh = self.preprocessor.dist_mesh_
             pw_dist_pred = np.clip(pw_dist_pred, dist_mesh[0], dist_mesh[-1])
             d_z_pred = (pw_dist_pred - self.metadata.d_mean) / self.metadata.d_std
-            set_data_dict["X_sigma_data"] = np.column_stack([
+            V_pred = np.column_stack([
                 np.ones_like(d_z_pred),
                 d_z_pred,
                 d_z_pred ** 2,
                 d_z_pred ** 3,
             ])
+            # Apply the same QR-based orthogonal transform used at training time.
+            set_data_dict["X_sigma_data"] = V_pred @ self.metadata.poly_transform
 
         # For spatial models: recompute pair indices for the prediction sites so the
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
@@ -517,8 +534,80 @@ class spGDMM(BaseEstimator):
     # Lifecycle methods (inlined from ModelBuilder, bugs fixed)
     # ------------------------------------------------------------------ #
 
+    def _compute_initvals(self):
+        """Compute initial values matching White et al. (2024) NIMBLE code.
+
+        Runs BFGS on ``sum((log_y - beta_0 - X @ exp(log_beta))^2)`` to get
+        reasonable starting values for ``beta_0`` and ``beta``.  For
+        ``beta_sigma``, uses White et al.'s hardcoded ``[-5, -20, 12, 2]``
+        (polynomial) or ``[0]`` (covariate_dependent).
+
+        The BFGS optimization only applies when ``alpha_importance=False``
+        (flat LogNormal beta).  With ``alpha_importance=True``, beta is a
+        Dirichlet and the OLS-based init is not applicable.
+        """
+        from scipy.optimize import minimize
+
+        X_GDM = self.X_transformed
+        log_y = self.y_transformed
+        p = X_GDM.shape[1]
+
+        initvals = {}
+
+        # BFGS initialization only applies for flat LogNormal beta
+        # (alpha_importance=False).  With alpha_importance=True, beta is
+        # Dirichlet-shaped (F, J) and needs no special initialization.
+        if not self._config.alpha_importance:
+            from numpy.linalg import lstsq
+            A = np.column_stack([np.ones(len(log_y)), X_GDM])
+            ols_coefs, _, _, _ = lstsq(A, log_y, rcond=None)
+            x0_beta0 = 0.3
+            x0_log_beta = np.array([
+                np.log(c) if c > 0 else -10.0 for c in ols_coefs[1:]
+            ])
+            x0 = np.concatenate([[x0_beta0], x0_log_beta])
+
+            def obj(par):
+                b0 = par[0]
+                log_b = par[1:]
+                pred = b0 + X_GDM @ np.exp(log_b)
+                return np.sum((log_y - pred) ** 2)
+
+            res = minimize(obj, x0, method="BFGS")
+            initvals["beta_0"] = float(res.x[0])
+            initvals["beta"] = np.exp(res.x[1:])
+
+        var_names = [v.name for v in self.model.free_RVs]
+        if "beta_sigma_raw" in var_names:
+            # Non-centered parameterization: beta_sigma = 10 * beta_sigma_raw,
+            # so beta_sigma_raw = beta_sigma_init / 10.
+            beta_sigma_raw_var = self.model["beta_sigma_raw"]
+            n_sigma = beta_sigma_raw_var.type.shape[0] or 1
+            if n_sigma == 4:
+                # Polynomial variance: White et al. uses [-5, -20, 12, 2]
+                initvals["beta_sigma_raw"] = np.array([-5.0, -20.0, 12.0, 2.0]) / 10.0
+            else:
+                # Covariate-dependent: start at 0 (sigma2 = exp(0) = 1)
+                initvals["beta_sigma_raw"] = np.zeros(n_sigma)
+
+        if "sigma2" in var_names:
+            initvals["sigma2"] = 1.0
+
+        if "sig2_psi" in var_names:
+            initvals["sig2_psi"] = 1.0
+
+        return initvals
+
     def _sample_model(self, **kwargs) -> az.InferenceData:
-        """Sample from the PyMC model."""
+        """Sample from the PyMC model.
+
+        Uses White et al. (2024) BFGS-based initial values for ``beta_0``
+        and ``beta``, and their hardcoded init for ``beta_sigma``.
+
+        For nutpie, initvals are passed via ``nuts_sampler_kwargs["init_mean"]``
+        in the unconstrained (transformed) parameter space, since nutpie silently
+        ignores the standard ``initvals`` argument.
+        """
         if self.model is None:
             raise RuntimeError(
                 "The model hasn't been built yet, call .build_model() first or .fit() instead."
@@ -526,7 +615,33 @@ class spGDMM(BaseEstimator):
         with self.model:
             sampler_args = {**self.sampler_config, **kwargs}
 
+            # Compute White et al. initial values (constrained space)
+            initvals = self._compute_initvals()
+
+            is_nutpie = sampler_args.get("nuts_sampler", "pymc") == "nutpie"
+
+            if is_nutpie:
+                # nutpie ignores `initvals` — pass via nuts_sampler_kwargs["init_mean"]
+                # in the unconstrained (transformed) parameter space.
+                unconstrained = {}
+                for rv in self.model.free_RVs:
+                    if rv.name not in initvals:
+                        continue
+                    value_var = self.model.rvs_to_values[rv]
+                    transform = self.model.rvs_to_transforms.get(rv, None)
+                    val = np.asarray(initvals[rv.name], dtype=np.float64)
+                    if transform is not None:
+                        unconstrained[value_var.name] = transform.forward(val).eval()
+                    else:
+                        unconstrained[value_var.name] = val
+
+                sampler_args.setdefault("nuts_sampler_kwargs", {})
+                sampler_args["nuts_sampler_kwargs"]["init_mean"] = unconstrained
+            else:
+                sampler_args["initvals"] = initvals
+
             idata = pm.sample(**sampler_args)
+
             idata.extend(pm.sample_prior_predictive(), join="right")
             idata.extend(pm.sample_posterior_predictive(idata), join="right")
 
