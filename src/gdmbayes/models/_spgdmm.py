@@ -526,25 +526,7 @@ class spGDMM(BaseEstimator):
         with self.model:
             sampler_args = {**self.sampler_config, **kwargs}
 
-            if sampler_args.get("nuts_sampler") == "nutpie":
-                import nutpie
-
-                compiled = nutpie.compile_pymc_model(
-                    self.model,
-                    jitter_rvs=set(),
-                )
-                idata = nutpie.sample(
-                    compiled,
-                    draws=sampler_args.get("draws", 1000),
-                    tune=sampler_args.get("tune", 1000),
-                    chains=sampler_args.get("chains", 4),
-                    seed=sampler_args.get("random_seed"),
-                    target_accept=sampler_args.get("target_accept", 0.95),
-                    progress_bar=sampler_args.get("progressbar", True),
-                )
-            else:
-                idata = pm.sample(**sampler_args)
-
+            idata = pm.sample(**sampler_args)
             idata.extend(pm.sample_prior_predictive(), join="right")
             idata.extend(pm.sample_posterior_predictive(idata), join="right")
 
