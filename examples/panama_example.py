@@ -217,6 +217,11 @@ if args.mode in ("bayes", "both"):
         print(f"BAYESIAN spGDMM — Panama  [{tag}]")
         print("=" * 60)
 
+        # nutpie is much faster (compiled Rust NUTS, no multiprocess overhead)
+        # but fails on jittered init for covariate_dependent variance with wide
+        # sigma=10 priors.  Use nutpie for all configs except covariate_dependent.
+        sampler = "pymc" if cfg["variance"] == "covariate_dependent" else "nutpie"
+
         def make_spgdmm():
             return spGDMM(
                 preprocessor=PreprocessorConfig(
@@ -235,7 +240,7 @@ if args.mode in ("bayes", "both"):
                     tune=args.tune,
                     chains=args.chains,
                     target_accept=0.95,
-                    nuts_sampler="pymc",
+                    nuts_sampler=sampler,
                     progressbar=True,
                     random_seed=args.seed,
                 ),
