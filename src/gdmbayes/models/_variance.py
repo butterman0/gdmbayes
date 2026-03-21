@@ -51,7 +51,7 @@ def variance_covariate_dependent(mu, X_sigma):
     """Variance as an exponential linear function of ``X_sigma``.
 
     If ``X_sigma`` is provided, fits ``sigma² = exp(X_sigma @ beta_sigma)``
-    with Normal(0, 2) priors on ``beta_sigma``.  ``X_sigma`` may be a numpy
+    with Normal(0, 10) priors on ``beta_sigma``.  ``X_sigma`` may be a numpy
     array or a PyMC ``pm.Data`` variable (shape ``(n_pairs, k)``).  The number
     of columns ``k`` is read from the static shape when ``X_sigma`` is a
     symbolic tensor, falling back to 1 (the default: pairwise geographic distance).
@@ -76,7 +76,7 @@ def variance_polynomial(mu, X_sigma):
     """Variance as a cubic polynomial function of the mean ``mu``.
 
     Fits ``sigma² = exp(b0 + b1*mu + b2*mu² + b3*mu³)`` with
-    Normal(0, 2) priors on all four coefficients.  The polynomial is clipped
+    Normal(0, 10) priors on all four coefficients.  The polynomial is clipped
     to [-20, 20] before exp() to prevent overflow during nutpie initialization.
 
     """

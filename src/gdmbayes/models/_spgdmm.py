@@ -350,12 +350,12 @@ class spGDMM(BaseEstimator):
 
                     if n_cols_dist > 0:
                         dist_cols = X_data[:, n_cols_env:]
-                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=10, shape=n_cols_dist)
+                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=2, shape=n_cols_dist)
                         mu = mu + pm.math.dot(dist_cols, beta_dist)
                 else:
                     mu = beta_0
             else:
-                beta = pm.LogNormal("beta", mu=0, sigma=10, shape=self.metadata.no_cols)
+                beta = pm.LogNormal("beta", mu=0, sigma=2, shape=self.metadata.no_cols)
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
             variance_fn = (
