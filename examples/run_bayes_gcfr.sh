@@ -22,7 +22,7 @@ echo "=== Bayesian spGDMM — GCFR  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SE
 $PYTHON gcfr_example.py --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
     --draws 1000 --tune 1000 --chains 4 --seed ${SEED} \
-    --n_folds 10 \
+    --n_folds 2 \
     --output_dir results/gcfr
 
 echo "Done (config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED})."

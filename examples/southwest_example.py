@@ -254,7 +254,7 @@ if args.mode in ("bayes", "both"):
                     tune=args.tune,
                     chains=args.chains,
                     target_accept=0.95,
-                    nuts_sampler="pymc",
+                    nuts_sampler="nutpie",
                     progressbar=True,
                     random_seed=args.seed,
                 ),
