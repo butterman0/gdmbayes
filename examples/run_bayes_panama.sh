@@ -22,8 +22,8 @@ SEED=${SEED:-42}
 echo "=== Bayesian spGDMM — Panama  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED} ==="
 $PYTHON panama_example.py --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
-    --draws 1000 --tune 1000 --chains 4 --seed ${SEED} \
-    --n_folds 2 \
+    --draws 1000 --tune 4000 --chains 4 --seed ${SEED} \
+    --n_folds 10 \
     --output_dir results/panama
 
 echo "Done (config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED})."
