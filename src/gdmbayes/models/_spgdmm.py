@@ -656,14 +656,9 @@ class spGDMM(BaseEstimator):
         """Sample from the PyMC model.
 
         Uses BFGS-based initial values for ``beta_0``, ``beta``, and
-        ``beta_sigma``.
-
-        For nutpie, initvals are injected by replacing the compiled model's
-        ``initial_point_func`` via ``dataclasses.replace``, since nutpie
-        ignores both ``initvals`` and ``init_mean`` kwargs in current
-        versions (tested with nutpie 0.16.7).  When using nutpie, the
-        model is compiled and sampled directly (bypassing ``pm.sample``)
-        to enable this override.
+        ``beta_sigma``.  Initial values are injected via
+        ``model.set_initval()`` so that both PyMC's internal sampler and
+        external samplers (nutpie) pick them up during model compilation.
         """
         if self.model is None:
             raise RuntimeError(
@@ -672,105 +667,19 @@ class spGDMM(BaseEstimator):
         with self.model:
             sampler_args = {**self.sampler_config, **kwargs}
 
-            # Compute initial values (constrained space)
+            # Compute initial values (constrained space) and inject into model
             initvals = self._compute_initvals()
+            for rv in self.model.free_RVs:
+                if rv.name in initvals:
+                    self.model.set_initval(rv, initvals[rv.name])
 
-            is_nutpie = sampler_args.get("nuts_sampler", "pymc") == "nutpie"
-
-            if is_nutpie:
-                idata = self._sample_nutpie(sampler_args, initvals)
-            else:
-                sampler_args["initvals"] = initvals
-                idata = pm.sample(**sampler_args)
+            sampler_args["initvals"] = initvals
+            idata = pm.sample(**sampler_args)
 
             idata.extend(pm.sample_prior_predictive(), join="right")
             idata.extend(pm.sample_posterior_predictive(idata), join="right")
 
         idata = self._set_idata_attrs(idata)
-        return idata
-
-    def _sample_nutpie(self, sampler_args: dict, initvals: dict) -> az.InferenceData:
-        """Sample via nutpie with custom initial values.
-
-        Compiles the model directly with nutpie and injects ``initvals`` by
-        replacing the compiled model's ``initial_point_func``.  This bypasses
-        ``pm.sample(nuts_sampler="nutpie")`` because nutpie 0.16.x ignores
-        both the ``initvals`` and ``init_mean`` parameters.
-
-        Post-processing (constant_data, observed_data, coords) replicates
-        what PyMC's ``_sample_external_nuts`` does.
-        """
-        import nutpie
-        from dataclasses import replace as dc_replace
-        from pymc.backends.arviz import (
-            coords_and_dims_for_inferencedata,
-            find_constants,
-            find_observations,
-        )
-        from arviz import dict_to_dataset
-
-        # --- Convert constrained initvals to unconstrained 1-D array ---
-        unconstrained = {}
-        for rv in self.model.free_RVs:
-            if rv.name not in initvals:
-                continue
-            value_var = self.model.rvs_to_values[rv]
-            transform = self.model.rvs_to_transforms.get(rv, None)
-            val = np.asarray(initvals[rv.name], dtype=np.float64)
-            if transform is not None:
-                unconstrained[value_var.name] = transform.forward(val).eval()
-            else:
-                unconstrained[value_var.name] = val
-
-        default_ip = self.model.initial_point()
-        for key in unconstrained:
-            if key in default_ip:
-                default_ip[key] = unconstrained[key]
-        init_array = np.concatenate([
-            np.atleast_1d(np.asarray(v, dtype=np.float64))
-            for v in default_ip.values()
-        ])
-
-        # --- Compile and inject initial_point_func ---
-        compiled = nutpie.compile_pymc_model(self.model)
-        compiled = dc_replace(
-            compiled,
-            initial_point_func=lambda *args, **kwargs: init_array,
-        )
-
-        # --- Sample ---
-        seed = sampler_args.get("random_seed", None)
-        idata = nutpie.sample(
-            compiled,
-            draws=sampler_args.get("draws", 1000),
-            tune=sampler_args.get("tune", 1000),
-            chains=sampler_args.get("chains", 4),
-            target_accept=sampler_args.get("target_accept", 0.95),
-            seed=seed,
-            progress_bar=sampler_args.get("progressbar", True),
-        )
-
-        # --- Post-processing (replicates PyMC's _sample_external_nuts) ---
-        coords, dims = coords_and_dims_for_inferencedata(self.model)
-        constant_data = dict_to_dataset(
-            find_constants(self.model),
-            library=pm,
-            coords=coords,
-            dims=dims,
-            default_dims=[],
-        )
-        observed_data = dict_to_dataset(
-            find_observations(self.model),
-            library=pm,
-            coords=coords,
-            dims=dims,
-            default_dims=[],
-        )
-        idata.add_groups(
-            {"constant_data": constant_data, "observed_data": observed_data},
-            coords=coords,
-            dims=dims,
-        )
         return idata
 
     def _set_idata_attrs(self, idata: az.InferenceData | None = None) -> az.InferenceData:
