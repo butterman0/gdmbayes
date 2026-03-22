@@ -1,14 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name=gdm-bayes-gcfr
-#SBATCH --output=results/logs/bayes_gcfr_%A_%a.out
-#SBATCH --error=results/logs/bayes_gcfr_%A_%a.err
-#SBATCH --time=48:00:00
-#SBATCH --mem=32G
+#SBATCH --job-name=gdm-holdout-gcfr
+#SBATCH --output=results/logs/holdout_gcfr_%A_%a.out
+#SBATCH --error=results/logs/holdout_gcfr_%A_%a.err
+#SBATCH --time=72:00:00
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH --array=0-8
 
-# Array job: one task per model configuration (0-8).
-# Each task runs 10-fold CV for one config (~2h/fit × 10 folds = ~20h).
+# Masked-holdout CV (White et al. 2024 strategy): fit on ALL 412 sites,
+# held-out pairs become latent Normal RVs so the GP samples psi
+# at test-site locations.
+# Array job: one task per model config (0-8), each runs 10-fold CV.
+# GCFR has 412 sites = 84,666 pairs; each fold holds out ~15,000 pairs
+# as latent RVs, making the model substantially larger.
 # Submit with: sbatch run_bayes_gcfr.sh
 
 set -e
@@ -18,11 +22,11 @@ mkdir -p results/logs results/gcfr ~/.cache/arviz
 PYTHON=/cluster/home/haroldh/miniforge3/envs/spgdmm-test/bin/python
 SEED=${SEED:-42}
 
-echo "=== Bayesian spGDMM — GCFR  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED} ==="
+echo "=== Masked-holdout CV — GCFR  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED} ==="
 $PYTHON gcfr_example.py --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
-    --draws 1000 --tune 1000 --chains 4 --seed ${SEED} \
-    --n_folds 2 \
+    --draws 1000 --tune 4000 --chains 4 --seed ${SEED} \
+    --n_folds 10 \
     --output_dir results/gcfr
 
 echo "Done (config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED})."
