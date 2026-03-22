@@ -48,7 +48,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["freq", "bayes", "both"], default="freq")
 parser.add_argument("--draws", type=int, default=1000)
-parser.add_argument("--tune", type=int, default=1000)
+parser.add_argument("--tune", type=int, default=4000)
 parser.add_argument("--chains", type=int, default=4)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument(
@@ -199,7 +199,7 @@ if args.mode in ("freq", "both"):
 # 2. Bayesian spGDMM — 8 model configurations × 5-fold CV
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
-    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs
+    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs, holdout_pairs
     from sklearn.model_selection import KFold
 
     # Model grid matching White et al. (2024) Table 1 (Models 1-9)
@@ -271,40 +271,33 @@ if args.mode in ("bayes", "both"):
                 full_model.save(out_nc)
                 print(f"  Full-data model saved to {out_nc}")
 
-        # --- Site-level CV ---
-        y_pred_cv = np.full(n_pairs, np.nan)
-        crps_vals = []
+        # --- Masked-holdout CV (White et al. 2024 strategy) ---
+        fold_metrics = []
 
         for fold, (train_sites, test_sites) in enumerate(
             itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
         ):
-            train_pair_idx = site_pairs(n_sites, train_sites)
-            test_pair_idx = site_pairs(n_sites, test_sites)
-            print(f"  Fold {fold + 1}/{args.n_folds} — {len(train_sites)} train sites "
-                  f"({len(train_pair_idx)} pairs), {len(test_sites)} test sites "
-                  f"({len(test_pair_idx)} pairs)")
-            X_train = X.iloc[train_sites].reset_index(drop=True)
-            y_train = y[train_pair_idx]
-            X_test = X.iloc[test_sites].reset_index(drop=True)
+            hold_idx = holdout_pairs(n_sites, test_sites)
+            mask = np.zeros(n_pairs, dtype=bool)
+            mask[hold_idx] = True
+            print(f"  Fold {fold + 1}/{args.n_folds} — {len(train_sites)} train sites, "
+                  f"{len(test_sites)} test sites, {mask.sum()} held-out pairs")
             cv_model = make_spgdmm()
-            cv_model.fit(X_train, y_train)
-            samples_da = cv_model.predict_posterior(X_test, combined=True)
-            y_pred_cv[test_pair_idx] = np.exp(samples_da).mean(dim="sample").values
-            crps_vals.append(crps_samples(y[test_pair_idx], samples_da))
+            cv_model.fit(X, y, holdout_mask=mask)
+            result = cv_model.extract_holdout_predictions()
+            fold_metrics.append({
+                "rmse": rmse(y[result["hold_idx"]], result["y_pred_mean"]),
+                "mae": mae(y[result["hold_idx"]], result["y_pred_mean"]),
+                "crps": crps_ensemble(y[result["hold_idx"]], result["y_pred_samples"]).mean(),
+            })
 
-        cv_mask = ~np.isnan(y_pred_cv)
-        r_cv = rmse(y[cv_mask], y_pred_cv[cv_mask])
-        m_cv = mae(y[cv_mask], y_pred_cv[cv_mask])
-        c_cv = float(np.mean(crps_vals))
+        r_cv = np.mean([m["rmse"] for m in fold_metrics])
+        m_cv = np.mean([m["mae"] for m in fold_metrics])
+        c_cv = np.mean([m["crps"] for m in fold_metrics])
 
         print(f"\n  RMSE ({args.n_folds}-fold CV): {r_cv:.4f}  (White 2024 M5 best RMSE: 0.1683)")
         print(f"  MAE  ({args.n_folds}-fold CV): {m_cv:.4f}  (White 2024 M5 best MAE:  0.1340)")
         print(f"  CRPS ({args.n_folds}-fold CV): {c_cv:.4f}  (White 2024 M6 best CRPS: 0.0971)")
-
-        pd.DataFrame({"y_obs": y, "y_pred_cv": y_pred_cv}).to_csv(
-            os.path.join(args.output_dir, f"gcfr_spgdmm_{tag}_cv_seed{args.seed}_predictions.csv"),
-            index=False,
-        )
 
         all_cv_metrics.append({
             "dataset": "GCFR",
@@ -315,8 +308,7 @@ if args.mode in ("bayes", "both"):
             "RMSE_CV": r_cv,
             "MAE_CV": m_cv,
             "CRPS_CV": c_cv,
-            "n_folds_run": len(crps_vals),
-            "n_pairs_scored": int(cv_mask.sum()),
+            "n_folds_run": len(fold_metrics),
             "n_pairs": n_pairs,
         })
 

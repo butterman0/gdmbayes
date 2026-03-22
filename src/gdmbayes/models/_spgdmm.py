@@ -167,6 +167,8 @@ class spGDMM(BaseEstimator):
         self.training_metadata: TrainingMetadata | None = None
         # Populated after each _transform_for_prediction call with clipping/NaN stats.
         self.prediction_metadata: dict | None = None
+        # Holdout mask for masked-holdout CV (White et al. 2024 strategy)
+        self._holdout_mask: np.ndarray | None = None
 
     def __sklearn_is_fitted__(self) -> bool:
         """Return True only after a successful fit (idata with posterior exists)."""
@@ -178,7 +180,7 @@ class spGDMM(BaseEstimator):
         return self._config_dict
 
     def _generate_and_preprocess_model_data(
-        self, X: pd.DataFrame, y: pd.Series
+        self, X: pd.DataFrame, y: pd.Series, holdout_mask: np.ndarray | None = None,
     ) -> None:
         """
         Preprocess model data before fitting.
@@ -193,7 +195,14 @@ class spGDMM(BaseEstimator):
             Site-level data with columns [xc, yc, time_idx, predictor1, ...]
         y : pd.Series
             Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
+        holdout_mask : np.ndarray of bool or None, optional
+            Boolean mask (length n_pairs, True = held-out pair).  When set,
+            the model is built on ALL sites but the likelihood is split:
+            observed pairs get the Censored likelihood, held-out pairs become
+            free Normal RVs.  This replicates the White et al. (2024) CV
+            strategy where latent variables are sampled for masked pairs.
         """
+        self._holdout_mask = holdout_mask
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
 
@@ -406,12 +415,34 @@ class spGDMM(BaseEstimator):
                 )
                 mu += spatial_fn(psi, row_indices, col_indices)
 
-            pm.Censored(
-                "log_y",
-                pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
-                lower=None, upper=0,
-                observed=log_y_data,
-            )
+            if self._holdout_mask is not None:
+                obs_idx = np.where(~self._holdout_mask)[0]
+                hold_idx = np.where(self._holdout_mask)[0]
+
+                if sigma2.ndim > 0:
+                    sigma_obs = pm.math.sqrt(sigma2[obs_idx])
+                    sigma_hold = pm.math.sqrt(sigma2[hold_idx])
+                else:
+                    sigma_obs = sigma_hold = pm.math.sqrt(sigma2)
+
+                pm.Censored(
+                    "log_y",
+                    pm.Normal.dist(mu=mu[obs_idx], sigma=sigma_obs),
+                    lower=None, upper=0,
+                    observed=log_y_values[obs_idx],
+                )
+                pm.Normal(
+                    "log_y_holdout",
+                    mu=mu[hold_idx], sigma=sigma_hold,
+                    shape=len(hold_idx),
+                )
+            else:
+                pm.Censored(
+                    "log_y",
+                    pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
+                    lower=None, upper=0,
+                    observed=log_y_data,
+                )
 
         self.model = model
 
@@ -554,8 +585,14 @@ class spGDMM(BaseEstimator):
         """
         from scipy.optimize import minimize
 
-        X_GDM = self.X_transformed
-        log_y = self.y_transformed
+        # When using holdout CV, compute initvals from observed pairs only
+        if self._holdout_mask is not None:
+            obs = ~self._holdout_mask
+            X_GDM = self.X_transformed[obs]
+            log_y = self.y_transformed[obs]
+        else:
+            X_GDM = self.X_transformed
+            log_y = self.y_transformed
         p = X_GDM.shape[1]
 
         initvals = {}
@@ -606,6 +643,8 @@ class spGDMM(BaseEstimator):
 
             if variance_type == "covariate_dependent" and self.metadata.X_sigma is not None:
                 X_sig = self.metadata.X_sigma
+                if self._holdout_mask is not None:
+                    X_sig = X_sig[~self._holdout_mask]
                 res_sigma = minimize(
                     _profile_nll, np.zeros(n_sigma), args=(lambda bs: X_sig @ bs,),
                     method="BFGS",
@@ -669,6 +708,11 @@ class spGDMM(BaseEstimator):
 
             # Compute initial values (constrained space) and inject into model
             initvals = self._compute_initvals()
+
+            # Initialize holdout latent variables with observed log-y values
+            if self._holdout_mask is not None:
+                initvals["log_y_holdout"] = self.y_transformed[self._holdout_mask]
+
             for rv in self.model.free_RVs:
                 if rv.name in initvals:
                     self.model.set_initval(rv, initvals[rv.name])
@@ -676,8 +720,12 @@ class spGDMM(BaseEstimator):
             sampler_args["initvals"] = initvals
             idata = pm.sample(**sampler_args)
 
-            idata.extend(pm.sample_prior_predictive(), join="right")
-            idata.extend(pm.sample_posterior_predictive(idata), join="right")
+            # Skip prior/posterior predictive when using holdout CV
+            # (unnecessary for CV metrics and posterior predictive on
+            # the Censored term is slow)
+            if self._holdout_mask is None:
+                idata.extend(pm.sample_prior_predictive(), join="right")
+                idata.extend(pm.sample_posterior_predictive(idata), join="right")
 
         idata = self._set_idata_attrs(idata)
         return idata
@@ -700,6 +748,7 @@ class spGDMM(BaseEstimator):
         self,
         X: pd.DataFrame,
         y: pd.Series | None = None,
+        holdout_mask: np.ndarray | None = None,
         progressbar: bool = True,
         random_seed=None,
         **kwargs,
@@ -713,6 +762,12 @@ class spGDMM(BaseEstimator):
             Site-level data with columns [xc, yc, time_idx, predictor1, ...]
         y : array-like
             Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
+        holdout_mask : np.ndarray of bool or None, optional
+            Boolean mask (length n_pairs, True = held-out pair).  When set,
+            the model is built on ALL sites but the likelihood is split into
+            observed (Censored) and held-out (free Normal) terms.  Use
+            ``extract_holdout_predictions()`` to retrieve posterior samples for
+            the held-out pairs.
         progressbar : bool
             Whether to display a progress bar during sampling.
         random_seed : int or None
@@ -734,7 +789,7 @@ class spGDMM(BaseEstimator):
             y = np.zeros(X.shape[0])
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
-        self._generate_and_preprocess_model_data(X, y_series.values)
+        self._generate_and_preprocess_model_data(X, y_series.values, holdout_mask=holdout_mask)
         self.build_model(self.X, self.y)
 
         self.idata = self._sample_model()
@@ -941,6 +996,32 @@ class spGDMM(BaseEstimator):
                 else:
                     self.idata = prior_pred
         return az.extract(prior_pred, "prior_predictive", combined=combined)
+
+    def extract_holdout_predictions(self) -> dict:
+        """Extract posterior predictions for held-out pairs.
+
+        Returns a dict with keys:
+
+        - ``hold_idx``: indices into the full pairwise vector for held-out pairs
+        - ``y_pred_mean``: posterior mean of dissimilarity (on [0, 1] scale)
+        - ``y_pred_samples``: full posterior samples, shape (n_hold, n_samples)
+
+        The transform ``Z = min(1, exp(log_V))`` matches White et al. (2024).
+        """
+        if self._holdout_mask is None:
+            raise RuntimeError("No holdout mask was set during fit().")
+        if self.idata is None or "posterior" not in self.idata:
+            raise RuntimeError("Model must be fitted before extracting predictions.")
+
+        log_y_hold = self.idata.posterior["log_y_holdout"]
+        # (chain, draw, n_hold) → (n_hold, n_samples)
+        samples = log_y_hold.stack(sample=("chain", "draw")).values
+        y_samples = np.minimum(1.0, np.exp(samples))
+        return {
+            "hold_idx": np.where(self._holdout_mask)[0],
+            "y_pred_mean": y_samples.mean(axis=1),
+            "y_pred_samples": y_samples,
+        }
 
     @property
     def id(self) -> str:

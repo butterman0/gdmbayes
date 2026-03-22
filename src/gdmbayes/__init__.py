@@ -64,7 +64,7 @@ from .preprocessing._config import PreprocessorConfig
 from .preprocessing._preprocessor import GDMPreprocessor
 
 # Utilities
-from .utils import site_pairs
+from .utils import site_pairs, holdout_pairs
 
 __all__ = [
     # Version
@@ -102,6 +102,7 @@ __all__ = [
     "geodesic_distance",
     # Utilities
     "site_pairs",
+    "holdout_pairs",
     # Plotting
     "plot_isplines",
     "plot_crps_comparison",

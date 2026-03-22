@@ -20,6 +20,7 @@ from gdmbayes import (
     PreprocessorConfig,
     GDMPreprocessor,
     site_pairs,
+    holdout_pairs,
 )
 
 
@@ -552,6 +553,127 @@ class TestSpGDMMSklearnInterface:
         mesh_before = m.preprocessor.predictor_mesh_.copy()
         m._generate_and_preprocess_model_data(X, y)
         np.testing.assert_array_equal(m.preprocessor.predictor_mesh_, mesh_before)
+
+
+class TestHoldoutCV:
+    """Tests for masked-holdout CV (White et al. 2024 strategy)."""
+
+    @pytest.fixture
+    def sample_data(self):
+        """Generate sample data for holdout tests."""
+        np.random.seed(42)
+        n_sites = 20
+        X = pd.DataFrame({
+            "xc": np.random.uniform(0, 100, n_sites),
+            "yc": np.random.uniform(0, 100, n_sites),
+            "time_idx": np.zeros(n_sites, dtype=int),
+            "temp": np.random.uniform(5, 20, n_sites),
+            "depth": np.random.uniform(0, 200, n_sites),
+        })
+        biomass = np.random.exponential(1, (n_sites, 10))
+        y = np.clip(pdist(biomass, "braycurtis"), 1e-8, None)
+        return X, y
+
+    def test_holdout_pairs_basic(self):
+        """holdout_pairs returns pairs where either site is in test set."""
+        n_sites = 5
+        test_sites = [3, 4]
+        idx = holdout_pairs(n_sites, test_sites)
+        all_row, all_col = np.triu_indices(n_sites, k=1)
+        for i in idx:
+            assert all_row[i] in test_sites or all_col[i] in test_sites
+
+    def test_holdout_pairs_count(self):
+        """holdout_pairs with k test sites out of n should return n*(n-1)/2 - (n-k)*(n-k-1)/2."""
+        n_sites = 10
+        test_sites = [7, 8, 9]
+        idx = holdout_pairs(n_sites, test_sites)
+        n_train = n_sites - len(test_sites)
+        expected = n_sites * (n_sites - 1) // 2 - n_train * (n_train - 1) // 2
+        assert len(idx) == expected
+
+    def test_holdout_pairs_disjoint_from_site_pairs(self):
+        """holdout_pairs and site_pairs(train) should partition all pairs."""
+        n_sites = 10
+        test_sites = [7, 8, 9]
+        train_sites = [i for i in range(n_sites) if i not in test_sites]
+        hold_idx = holdout_pairs(n_sites, test_sites)
+        train_idx = site_pairs(n_sites, train_sites)
+        total = n_sites * (n_sites - 1) // 2
+        assert len(hold_idx) + len(train_idx) == total
+        assert len(set(hold_idx) & set(train_idx)) == 0
+
+    def test_build_model_holdout(self, sample_data):
+        """Model with holdout_mask has log_y_holdout as a free RV."""
+        X, y = sample_data
+        n_pairs = len(y)
+        mask = np.zeros(n_pairs, dtype=bool)
+        mask[:50] = True  # hold out first 50 pairs
+
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+        )
+        model._generate_and_preprocess_model_data(X, y, holdout_mask=mask)
+        model.build_model(model.X, model.y)
+
+        assert "log_y_holdout" in model.model.named_vars
+        free_rv_names = [v.name for v in model.model.free_RVs]
+        assert "log_y_holdout" in free_rv_names
+
+    def test_build_model_no_holdout_unchanged(self, sample_data):
+        """Without holdout_mask, model should NOT have log_y_holdout."""
+        X, y = sample_data
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+        )
+        model._generate_and_preprocess_model_data(X, y)
+        model.build_model(model.X, model.y)
+        assert "log_y_holdout" not in model.model.named_vars
+
+    def test_build_model_holdout_covariate_dependent(self, sample_data):
+        """Holdout works with covariate_dependent variance (vector sigma2)."""
+        X, y = sample_data
+        n_pairs = len(y)
+        mask = np.zeros(n_pairs, dtype=bool)
+        mask[:50] = True
+
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            model_config=ModelConfig(variance="covariate_dependent", spatial_effect="none"),
+        )
+        model._generate_and_preprocess_model_data(X, y, holdout_mask=mask)
+        model.build_model(model.X, model.y)
+
+        assert "log_y_holdout" in model.model.named_vars
+
+    def test_fit_with_holdout_mask(self, sample_data):
+        """Smoke test: fit with holdout_mask completes and extract_holdout_predictions works."""
+        X, y = sample_data
+        n_pairs = len(y)
+        mask = np.zeros(n_pairs, dtype=bool)
+        mask[:50] = True
+
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+            sampler_config=SamplerConfig(
+                draws=2, tune=2, chains=1, nuts_sampler="pymc", progressbar=False
+            ),
+        )
+        model.fit(X, y, holdout_mask=mask)
+        result = model.extract_holdout_predictions()
+
+        assert "hold_idx" in result
+        assert "y_pred_mean" in result
+        assert "y_pred_samples" in result
+        assert len(result["hold_idx"]) == 50
+        assert result["y_pred_mean"].shape == (50,)
+        assert result["y_pred_samples"].shape[0] == 50
+        # Predictions should be in [0, 1]
+        assert np.all(result["y_pred_mean"] >= 0)
+        assert np.all(result["y_pred_mean"] <= 1)
 
 
 class TestSpGDMMSaveLoad:
