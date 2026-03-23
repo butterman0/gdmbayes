@@ -3,8 +3,8 @@ Compare gdmbayes results across datasets and model configurations
 against White et al. (2024) Table 1 benchmarks.
 
 Loads ``*_cv_metrics.csv`` files written by each example script and prints
-a unified comparison table.  White et al. benchmarks are hardcoded from
-Table 1 of the published paper (10-fold CV, posterior-mean predictions).
+a unified comparison table.  White et al. benchmarks are loaded from
+``benchmarks/white2024_table1.csv`` (10-fold CV, posterior-mean predictions).
 
 Usage
 -----
@@ -29,70 +29,41 @@ RESULTS_DIR = args.results_dir
 
 # ---------------------------------------------------------------------------
 # White et al. (2024) Table 1 benchmarks (10-fold CV)
-# Model numbering follows White et al.; CRPS is the proper scoring rule.
-# CRPS not reported for Ferrier (R gdm) — it returns only point predictions.
+# Loaded from benchmarks/white2024_table1.csv.
 # ---------------------------------------------------------------------------
-WHITE_BENCHMARKS = [
-    # SW Australia (94 sites, 3 predictors, knots=1)
-    dict(dataset="SW Australia", model="White: Naive", config_tag="naive",
-         RMSE_CV=0.0849, MAE_CV=0.0637, CRPS_CV=None),
-    dict(dataset="SW Australia", model="White: Ferrier (R gdm)", config_tag="ferrier",
-         RMSE_CV=0.0737, MAE_CV=0.0549, CRPS_CV=None),
-    dict(dataset="SW Australia", model="White: Model 1 (none/hom)", config_tag="none_homogeneous",
-         RMSE_CV=0.0790, MAE_CV=0.0595, CRPS_CV=0.0439),
-    dict(dataset="SW Australia", model="White: Model 2 (none/cov_dep)", config_tag="none_covariate_dependent",
-         RMSE_CV=0.0805, MAE_CV=0.0608, CRPS_CV=0.0435),
-    dict(dataset="SW Australia", model="White: Model 4 (abs_diff/hom)", config_tag="abs_diff_homogeneous",
-         RMSE_CV=0.0840, MAE_CV=0.0629, CRPS_CV=0.0473),
-    dict(dataset="SW Australia", model="White: Model 5 (abs_diff/cov_dep)", config_tag="abs_diff_covariate_dependent",
-         RMSE_CV=0.0820, MAE_CV=0.0626, CRPS_CV=0.0454),
-    dict(dataset="SW Australia", model="White: Model 7 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
-         RMSE_CV=0.0731, MAE_CV=0.0545, CRPS_CV=0.0414),
-    dict(dataset="SW Australia", model="White: Model 8 (sq_diff/cov_dep)", config_tag="squared_diff_covariate_dependent",
-         RMSE_CV=0.0748, MAE_CV=0.0556, CRPS_CV=0.0407),
+_BENCHMARK_CSV = os.path.join(os.path.dirname(__file__), "..", "benchmarks", "white2024_table1.csv")
+_bench = pd.read_csv(_BENCHMARK_CSV)
 
-    # Panama (39 sites, 2 predictors, knots=1)
-    dict(dataset="Panama", model="White: Naive", config_tag="naive",
-         RMSE_CV=0.1082, MAE_CV=0.0877, CRPS_CV=None),
-    dict(dataset="Panama", model="White: Ferrier (R gdm)", config_tag="ferrier",
-         RMSE_CV=0.0934, MAE_CV=0.0716, CRPS_CV=None),
-    dict(dataset="Panama", model="White: Model 1 (none/hom)", config_tag="none_homogeneous",
-         RMSE_CV=0.0954, MAE_CV=0.0779, CRPS_CV=0.0527),
-    dict(dataset="Panama", model="White: Model 2 (none/cov_dep)", config_tag="none_covariate_dependent",
-         RMSE_CV=0.0949, MAE_CV=0.0774, CRPS_CV=0.0522),
-    dict(dataset="Panama", model="White: Model 4 (abs_diff/hom)", config_tag="abs_diff_homogeneous",
-         RMSE_CV=0.0909, MAE_CV=0.0683, CRPS_CV=0.0502),
-    dict(dataset="Panama", model="White: Model 5 (abs_diff/cov_dep)", config_tag="abs_diff_covariate_dependent",
-         RMSE_CV=0.0879, MAE_CV=0.0654, CRPS_CV=0.0479),
-    dict(dataset="Panama", model="White: Model 7 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
-         RMSE_CV=0.0842, MAE_CV=0.0633, CRPS_CV=0.0468),
-    dict(dataset="Panama", model="White: Model 8 (sq_diff/cov_dep)", config_tag="squared_diff_covariate_dependent",
-         RMSE_CV=0.0821, MAE_CV=0.0618, CRPS_CV=0.0450),
+# Map CSV dataset names to the short names used in our results
+_DATASET_MAP = {"GCFR Family": "GCFR", "GCFR Species": "GCFR Species"}
 
-    # GCFR Family (413 sites, 7 predictors, knots=2)
-    dict(dataset="GCFR", model="White: Naive", config_tag="naive",
-         RMSE_CV=0.2075, MAE_CV=0.1711, CRPS_CV=None),
-    dict(dataset="GCFR", model="White: Ferrier (R gdm)", config_tag="ferrier",
-         RMSE_CV=0.1922, MAE_CV=0.1569, CRPS_CV=None),
-    dict(dataset="GCFR", model="White: Model 1 (none/hom)", config_tag="none_homogeneous",
-         RMSE_CV=0.1916, MAE_CV=0.1566, CRPS_CV=0.1104),
-    dict(dataset="GCFR", model="White: Model 2 (none/cov_dep)", config_tag="none_covariate_dependent",
-         RMSE_CV=0.1919, MAE_CV=0.1568, CRPS_CV=0.1106),
-    dict(dataset="GCFR", model="White: Model 3 (none/poly)", config_tag="none_polynomial",
-         RMSE_CV=0.1926, MAE_CV=0.1573, CRPS_CV=0.1110),
-    dict(dataset="GCFR", model="White: Model 4 (abs_diff/hom)", config_tag="abs_diff_homogeneous",
-         RMSE_CV=0.1701, MAE_CV=0.1350, CRPS_CV=0.0982),
-    dict(dataset="GCFR", model="White: Model 5 (abs_diff/cov_dep)", config_tag="abs_diff_covariate_dependent",
-         RMSE_CV=0.1683, MAE_CV=0.1340, CRPS_CV=0.0972),
-    dict(dataset="GCFR", model="White: Model 6 (abs_diff/poly)", config_tag="abs_diff_polynomial",
-         RMSE_CV=0.1698, MAE_CV=0.1342, CRPS_CV=0.0971),
-    dict(dataset="GCFR", model="White: Model 7 (sq_diff/hom)", config_tag="squared_diff_homogeneous",
-         RMSE_CV=0.1757, MAE_CV=0.1401, CRPS_CV=0.1016),
-    dict(dataset="GCFR", model="White: Model 8 (sq_diff/cov_dep)", config_tag="squared_diff_covariate_dependent",
-         RMSE_CV=0.1763, MAE_CV=0.1413, CRPS_CV=0.1020),
-    dict(dataset="GCFR", model="White: Model 9 (sq_diff/poly)", config_tag="squared_diff_polynomial",
-         RMSE_CV=0.1823, MAE_CV=0.1454, CRPS_CV=0.1045),
-]
+# Map CSV model numbers to config_tags and display labels
+_SPATIAL_LABELS = {"none": "none", "abs_diff": "abs_diff", "squared_diff": "sq_diff"}
+_VARIANCE_LABELS = {
+    "homogeneous": "hom", "covariate_dependent": "cov_dep", "polynomial": "poly",
+}
+
+WHITE_BENCHMARKS = []
+for _, r in _bench.iterrows():
+    ds = _DATASET_MAP.get(r["dataset"], r["dataset"])
+    mn = str(r["model_number"])
+    if mn in ("naive", "ferrier"):
+        config_tag = mn
+        label = f"White: {r['model_name']}"
+    else:
+        se = r["spatial_effect"]
+        var = r["variance"]
+        config_tag = f"{se}_{var}"
+        se_short = _SPATIAL_LABELS.get(se, se)
+        var_short = _VARIANCE_LABELS.get(var, var)
+        label = f"White: Model {mn} ({se_short}/{var_short})"
+    crps = r["CRPS"] if pd.notna(r.get("CRPS")) else None
+    rmse = r["RMSE"] if pd.notna(r.get("RMSE")) else None
+    mae = r["MAE"] if pd.notna(r.get("MAE")) else None
+    WHITE_BENCHMARKS.append(dict(
+        dataset=ds, model=label, config_tag=config_tag,
+        RMSE_CV=rmse, MAE_CV=mae, CRPS_CV=crps,
+    ))
 
 rows = list(WHITE_BENCHMARKS)
 
@@ -155,6 +126,7 @@ MODEL_LABELS = {
     "abs_diff_polynomial":       "Model 6: abs_diff / polynomial",
     "squared_diff_homogeneous":  "Model 7: sq_diff / homogeneous",
     "squared_diff_covariate_dependent": "Model 8: sq_diff / cov_dep",
+    "squared_diff_polynomial":          "Model 9: sq_diff / polynomial",
 }
 
 for ds, fpath in BAYES_FILES.items():
@@ -164,7 +136,7 @@ for ds, fpath in BAYES_FILES.items():
     for _, row in cv_df.iterrows():
         tag = row["config_tag"]
         label = MODEL_LABELS.get(tag, tag)
-        n_folds = int(row.get("n_folds", "?"))
+        n_folds = int(row.get("n_folds_run", row.get("n_folds", 0)))
         rows.append(dict(
             dataset=ds,
             model=f"gdmbayes spGDMM {label} ({n_folds}-fold CV)",
@@ -178,6 +150,12 @@ for ds, fpath in BAYES_FILES.items():
 # Print comparison table
 # ---------------------------------------------------------------------------
 df = pd.DataFrame(rows)
+
+# Sort so each dataset's White benchmarks appear next to gdmbayes results
+_ds_order = {ds: i for i, ds in enumerate(df["dataset"].unique())}
+df["_ds_rank"] = df["dataset"].map(_ds_order)
+df["_is_white"] = df["model"].str.startswith("White:").map({True: 0, False: 1})
+df = df.sort_values(["_ds_rank", "_is_white", "model"]).drop(columns=["_ds_rank", "_is_white"])
 
 print("\n" + "=" * 100)
 print(f"{'Dataset':<16} {'Model':<52} {'RMSE':>7} {'MAE':>7} {'CRPS':>7}")
