@@ -35,13 +35,24 @@ Usage
 """
 
 import argparse
+import datetime
 import itertools
 import os
+import subprocess
 import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
 from properscoring import crps_ensemble
+
+
+def _git_hash():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], text=True
+        ).strip()
+    except Exception:
+        return "unknown"
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -312,8 +323,13 @@ if args.mode in ("bayes", "both"):
             "RMSE_CV": r_cv,
             "MAE_CV": m_cv,
             "CRPS_CV": c_cv,
-            "n_folds_run": len(fold_metrics),
+            "n_folds": args.n_folds,
             "n_pairs": n_pairs,
+            "draws": args.draws,
+            "tune": args.tune,
+            "chains": args.chains,
+            "commit": _git_hash(),
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
         })
 
     # Save all CV metrics to a single CSV (appending if running one config at a time)
@@ -321,11 +337,10 @@ if args.mode in ("bayes", "both"):
     new_df = pd.DataFrame(all_cv_metrics)
     if os.path.exists(metrics_path):
         existing = pd.read_csv(metrics_path)
-        if "seed" not in existing.columns:
-            existing["seed"] = 42  # backfill pre-seed runs
         mask = ~(
             existing["config_tag"].isin(new_df["config_tag"]) &
-            (existing["seed"] == args.seed)
+            (existing["seed"] == args.seed) &
+            (existing["n_folds"] == args.n_folds)
         )
         existing = existing[mask]
         new_df = pd.concat([existing, new_df], ignore_index=True)
