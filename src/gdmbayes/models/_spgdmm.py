@@ -431,10 +431,9 @@ class spGDMM(BaseEstimator):
                     lower=None, upper=0,
                     observed=log_y_values[obs_idx],
                 )
-                pm.Truncated(
+                pm.Normal(
                     "log_y_holdout",
-                    pm.Normal.dist(mu=mu[hold_idx], sigma=sigma_hold),
-                    lower=None, upper=0,
+                    mu=mu[hold_idx], sigma=sigma_hold,
                     shape=len(hold_idx),
                 )
             else:
