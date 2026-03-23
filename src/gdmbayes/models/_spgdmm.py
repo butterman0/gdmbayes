@@ -709,15 +709,12 @@ class spGDMM(BaseEstimator):
             # Compute initial values (constrained space) and inject into model
             initvals = self._compute_initvals()
 
-            # Initialize holdout latent variables with observed log-y values
-            if self._holdout_mask is not None:
-                initvals["log_y_holdout"] = self.y_transformed[self._holdout_mask]
-
             for rv in self.model.free_RVs:
                 if rv.name in initvals:
                     self.model.set_initval(rv, initvals[rv.name])
 
-            sampler_args["initvals"] = initvals
+            if sampler_args.get("nuts_sampler", "pymc") != "nutpie":
+                sampler_args["initvals"] = initvals
             idata = pm.sample(**sampler_args)
 
             # Skip prior/posterior predictive when using holdout CV

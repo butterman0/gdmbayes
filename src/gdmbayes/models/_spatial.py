@@ -39,17 +39,11 @@ import pymc as pm
 
 
 def spatial_abs_diff(psi, row_ind, col_ind):
-    """Spatial effect as the smoothed absolute difference of GP values.
+    """Spatial effect as the absolute difference of GP values between sites.
 
-    Returns ``sqrt(eps + (psi[i] - psi[j])^2)`` for each pair ``(i, j)``,
-    which approximates ``|psi[i] - psi[j]|`` but is differentiable everywhere.
-    The raw ``|x|`` has a gradient discontinuity at ``x = 0`` that causes
-    NUTS/HMC difficulties, especially with many latent variables (e.g.
-    masked-holdout CV).  The smoothed version is identical for practical
-    purposes (eps = 1e-6 means < 0.001 difference for |diff| > 0.01).
+    Returns ``|psi[i] - psi[j]|`` for each pair ``(i, j)``.
     """
-    diff = psi[row_ind] - psi[col_ind]
-    return pm.math.sqrt(1e-6 + diff ** 2)
+    return pm.math.abs(psi[row_ind] - psi[col_ind])
 
 
 def spatial_squared_diff(psi, row_ind, col_ind):
@@ -57,7 +51,8 @@ def spatial_squared_diff(psi, row_ind, col_ind):
 
     Returns ``|psi[i] - psi[j]|²`` for each pair ``(i, j)``.
     """
-    return pm.math.abs(psi[row_ind] - psi[col_ind]) ** 2
+    diff = psi[row_ind] - psi[col_ind]
+    return diff ** 2
 
 
 SPATIAL_FUNCTIONS: Dict[str, Callable] = {
