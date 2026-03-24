@@ -126,6 +126,8 @@ CV metrics CSVs (`*_cv_metrics.csv`) deduplicate by `(config_tag, seed, n_folds)
 
 ### SLURM array jobs
 
+**Never run MCMC on the login node.** Always submit via `sbatch`. Use `--array=3-8` to run a subset of configs.
+
 ```bash
 # Submit Bayesian CV jobs (one array task per model config)
 sbatch examples/run_bayes_panama.sh   # 9 configs × 10 folds, ~4h
