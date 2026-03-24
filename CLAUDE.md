@@ -87,7 +87,7 @@ GDMPreprocessor (preprocessing/_preprocessor.py)  ← sklearn transformer
 - Transformation state (spline knots, column indices, spatial metadata) is saved into `idata` via `GDMPreprocessor.to_xarray()` (called by `spGDMM._save_input_params()`) and reconstructed via `GDMPreprocessor.from_xarray()`.
 - `ModelConfig` now contains only Bayesian model-structure fields. Legacy preprocessing keys passed via `model_config` trigger a `DeprecationWarning`.
 - `ModelMetadata` stores `d_mean` / `d_std` for standardising pairwise distances, and `poly_transform` (R⁻¹ from QR decomposition) for converting raw monomials `[1, d_z, d_z², d_z³]` to an orthogonal polynomial basis. Both `_generate_and_preprocess_model_data()` (training) and `_data_setter()` (prediction) apply the same QR transform so train/predict are consistent.
-- **Variance model initialisation**: `_compute_initvals()` runs a two-stage BFGS: (1) squared-error for beta_0/beta, (2) profile Gaussian NLL for beta_sigma given fixed mu. This places the sampler near the posterior mode, critical for avoiding Neal's funnel in heterogeneous variance models.
+- **MCMC initialisation**: `_compute_initvals()` runs a multi-stage BFGS matching White et al.: (1) squared-error for beta_0/beta, (1b) joint re-optimisation of [beta_0, log_beta, psi] including the spatial effect term when spatial models are configured, (2) profile Gaussian NLL for beta_sigma given fixed mu+spatial. Psi init is critical — without it NUTS starts with zero spatial contribution and struggles to discover GP structure, especially through the non-differentiable `abs()` in abs_diff models.
 - **nutpie initvals**: nutpie 0.16.x ignores `initvals` passed via `pm.sample()`. The workaround is `model.set_initval(rv, value)` which modifies PyMC's `rvs_to_initial_values` dict before nutpie compiles the model — nutpie's `compile_pymc_model()` picks them up via `make_initial_point_fn()`. This avoids custom compilation/sampling code.
 - **Masked-holdout CV**: White et al. (2024) fits on ALL sites with held-out pairs masked as NA, so the GP samples `psi` at test-site locations. We replicate this by splitting the likelihood: `pm.Censored` for observed train pairs + `pm.Normal` for held-out pairs (free latent RVs). Use `spGDMM.fit(X, y, holdout_mask=mask)` and `extract_holdout_predictions()` to retrieve posterior samples. The `holdout_pairs(n_sites, test_sites)` utility returns indices where EITHER site is a test site (matching White et al.'s masking strategy).
 - Full-data `.nc` files in the Panama example use `fcntl.flock` to avoid HDF5 race conditions when array jobs write concurrently.
@@ -119,6 +119,10 @@ For fair comparison against White et al., all validation runs **must use identic
 - 10-fold site-level CV for all datasets
 - `compare_results.py` loads CV metrics CSVs and prints a unified comparison table
 - Validate on Panama first (smallest dataset, fastest iteration), then SW Australia, then GCFR
+
+### Experiment tracking
+
+CV metrics CSVs (`*_cv_metrics.csv`) deduplicate by `(config_tag, seed, n_folds)` — rerunning a config automatically overwrites the old row. **Do not delete result files before resubmitting jobs**; the dedup logic handles it. Each row also records the git commit hash and timestamp for provenance.
 
 ### SLURM array jobs
 
