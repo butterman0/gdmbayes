@@ -566,10 +566,16 @@ class spGDMM(BaseEstimator):
     # ------------------------------------------------------------------ #
 
     def _compute_initvals(self):
-        """Compute initial values via two-stage BFGS optimization.
+        """Compute initial values via multi-stage BFGS optimization.
 
-        **Stage 1** (mean model): BFGS on ``sum((log_y - beta_0 - X @ exp(log_beta))^2)``
-        for ``beta_0`` and ``beta``, assuming constant variance.
+        **Stage 1** (mean model, no spatial): BFGS on
+        ``sum((log_y - beta_0 - X @ exp(log_beta))^2)`` for ``beta_0`` and
+        ``beta``, assuming constant variance and no spatial effect.
+
+        **Stage 1b** (mean model + spatial): If a spatial effect is configured,
+        re-optimises jointly over ``[beta_0, log_beta, psi]`` including the
+        spatial term.  This matches White et al.'s initialisation strategy and
+        is critical for NUTS convergence on spatial models.
 
         **Stage 2** (variance model): Profile NLL optimization for ``beta_sigma``,
         holding the stage-1 mean parameters fixed.  Minimises the Gaussian
@@ -595,6 +601,12 @@ class spGDMM(BaseEstimator):
             log_y = self.y_transformed
         p = X_GDM.shape[1]
 
+        # Pair indices (for spatial init), filtered to observed pairs if holdout
+        row_ind, col_ind = self._pair_indices
+        if self._holdout_mask is not None:
+            row_ind = row_ind[~self._holdout_mask]
+            col_ind = col_ind[~self._holdout_mask]
+
         initvals = {}
 
         # Stage 1: mean model (beta_0, beta) via squared-error BFGS.
@@ -619,6 +631,38 @@ class spGDMM(BaseEstimator):
             initvals["beta_0"] = float(res.x[0])
             initvals["beta"] = np.exp(res.x[1:])
 
+            # Stage 1b: joint optimisation including psi (spatial effect).
+            # White et al. initialises psi by optimising
+            #   sum((log_y - b0 - X @ exp(log_b) - spatial(psi))^2)
+            # jointly over [beta_0, log_beta, psi].
+            if self._config.spatial_effect != "none":
+                ns = self.metadata.no_sites_train
+                spatial_type = self._config.spatial_effect
+
+                if callable(spatial_type):
+                    spatial_name = "custom"
+                else:
+                    spatial_name = spatial_type
+
+                x0_psi = np.random.default_rng(42).normal(0, 0.1, size=ns)
+                x0_joint = np.concatenate([res.x, x0_psi])
+
+                def obj_spatial(par):
+                    b0 = par[0]
+                    log_b = par[1:p + 1]
+                    psi = par[p + 1:]
+                    pred = b0 + X_GDM @ np.exp(log_b)
+                    if spatial_name == "abs_diff":
+                        pred = pred + np.abs(psi[row_ind] - psi[col_ind])
+                    elif spatial_name == "squared_diff":
+                        pred = pred + (psi[row_ind] - psi[col_ind]) ** 2
+                    return np.sum((log_y - pred) ** 2)
+
+                res_sp = minimize(obj_spatial, x0_joint, method="BFGS")
+                initvals["beta_0"] = float(res_sp.x[0])
+                initvals["beta"] = np.exp(res_sp.x[1:p + 1])
+                initvals["psi"] = res_sp.x[p + 1:]
+
         # Stage 2: variance model (beta_sigma) via profile NLL.
         var_names = [v.name for v in self.model.free_RVs]
         if "beta_sigma_raw" in var_names and not self._config.alpha_importance:
@@ -626,6 +670,15 @@ class spGDMM(BaseEstimator):
             n_sigma = beta_sigma_raw_var.type.shape[0] or 4
 
             mu_fixed = initvals["beta_0"] + X_GDM @ initvals["beta"]
+            # Include spatial effect in mu_fixed if psi was initialized
+            if "psi" in initvals:
+                psi_init = initvals["psi"]
+                if self._config.spatial_effect == "abs_diff" or (
+                    callable(self._config.spatial_effect)
+                ):
+                    mu_fixed = mu_fixed + np.abs(psi_init[row_ind] - psi_init[col_ind])
+                elif self._config.spatial_effect == "squared_diff":
+                    mu_fixed = mu_fixed + (psi_init[row_ind] - psi_init[col_ind]) ** 2
             residuals = log_y - mu_fixed
 
             variance_type = (
