@@ -95,7 +95,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         # Build predictor mesh
         if X_values.shape[1] > 0:
             n_predictors = X_values.shape[1]
-            n_knot_points = max(cfg.knots + 2, cfg.deg + 1)
+            n_knot_points = cfg.knots + 2
 
             if cfg.mesh_choice == "percentile":
                 predictor_mesh = np.percentile(
@@ -139,7 +139,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         if cfg.custom_dist_mesh is not None:
             dist_mesh = cfg.custom_dist_mesh
         else:
-            dist_n_knot_points = max(cfg.knots + 2, cfg.deg + 1)
+            dist_n_knot_points = cfg.knots + 2
             dist_mesh = np.percentile(pw_distance, np.linspace(0, 100, dist_n_knot_points))
 
             unique_vals = np.unique(dist_mesh)

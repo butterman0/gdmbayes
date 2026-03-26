@@ -33,8 +33,11 @@ class GDM(BaseEstimator, RegressorMixin):
 
     Attributes (set after fit)
     --------------------------
-    coef_ : ndarray of shape (n_gdm_features,)
-        NNLS coefficients per I-spline column.
+    coef_ : ndarray of shape (1 + n_gdm_features,)
+        NNLS coefficients: coef_[0] is the intercept (alpha_0 ≥ 0),
+        remaining entries are per I-spline column, matching R gdm layout.
+    intercept_ : float
+        The fitted intercept coefficient (= coef_[0]).
     predictor_importance_ : dict[str, float]
         Sum of coef_ per predictor (analogous to R gdm "importance").
     null_deviance_ : float
@@ -82,12 +85,15 @@ class GDM(BaseEstimator, RegressorMixin):
         return GDMPreprocessor(config=cfg)
 
     def _get_X_gdm(self, X: pd.DataFrame) -> np.ndarray:
-        """Transform site-level X to pairwise GDM feature matrix."""
+        """Transform site-level X to pairwise GDM feature matrix with intercept.
+
+        Returns a matrix whose first column is all-ones (the intercept), matching
+        R gdm's Gdmlib.cpp design matrix construction (lines 695-699).
+        """
         X_full = self.preprocessor_.transform(X)
         n_env = self.preprocessor_.n_predictors_ * self.preprocessor_.n_spline_bases_
-        if self.geo:
-            return X_full  # env columns + dist columns
-        return X_full[:, :n_env]  # env columns only
+        X_feat = X_full if self.geo else X_full[:, :n_env]
+        return np.column_stack([np.ones(X_feat.shape[0]), X_feat])
 
     def __sklearn_is_fitted__(self):
         return hasattr(self, "coef_")
@@ -181,15 +187,16 @@ class GDM(BaseEstimator, RegressorMixin):
         else:
             self.explained_ = 0.0
 
-        # Predictor importance: sum of coef per predictor
+        # Predictor importance: sum of coef per predictor (coef[0] is intercept)
+        self.intercept_ = float(coef[0])
         n_bases = self.preprocessor_.n_spline_bases_
         pred_names = list(self.preprocessor_.predictor_names_)
         importance = {}
         for i, name in enumerate(pred_names):
-            importance[name] = float(np.sum(coef[i * n_bases:(i + 1) * n_bases]))
+            importance[name] = float(np.sum(coef[1 + i * n_bases : 1 + (i + 1) * n_bases]))
         if self.geo:
             n_env = len(pred_names) * n_bases
-            importance["geo"] = float(np.sum(coef[n_env:]))
+            importance["geo"] = float(np.sum(coef[1 + n_env:]))
         self.predictor_importance_ = importance
 
         # Knot positions per predictor
@@ -239,7 +246,7 @@ class GDM(BaseEstimator, RegressorMixin):
         check_is_fitted(self)
         I_bases = self.preprocessor_.transform(X, biological_space=True)
         n_env = self.preprocessor_.n_predictors_ * self.preprocessor_.n_spline_bases_
-        env_coef = self.coef_[:n_env]
+        env_coef = self.coef_[1:1 + n_env]  # skip intercept at coef_[0]
         return I_bases * env_coef[np.newaxis, :]
 
     def score(self, X: pd.DataFrame, y: np.ndarray) -> float:

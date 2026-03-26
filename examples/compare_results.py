@@ -22,6 +22,10 @@ parser.add_argument(
     "--results_dir", type=str,
     default=os.path.join(os.path.dirname(__file__), "results"),
 )
+parser.add_argument(
+    "--no_poly", action="store_true",
+    help="Exclude polynomial variance models (3/6/9) from output.",
+)
 args = parser.parse_args()
 
 RESULTS_DIR = args.results_dir
@@ -53,6 +57,8 @@ for _, r in _bench.iterrows():
     else:
         se = r["spatial_effect"]
         var = r["variance"]
+        if args.no_poly and var == "polynomial":
+            continue
         config_tag = f"{se}_{var}"
         se_short = _SPATIAL_LABELS.get(se, se)
         var_short = _VARIANCE_LABELS.get(var, var)
@@ -75,10 +81,24 @@ def fmt(v):
 
 
 # ---------------------------------------------------------------------------
+# Load R gdm (Ferrier re-run) results
+# ---------------------------------------------------------------------------
+_R_GDM_CSV = os.path.join(RESULTS_DIR, "r_gdm_results.csv")
+if os.path.exists(_R_GDM_CSV):
+    r_gdm_df = pd.read_csv(_R_GDM_CSV)
+    for _, r in r_gdm_df.iterrows():
+        rows.append(dict(
+            dataset=r["dataset"],
+            model=str(r["model"]),
+            config_tag="r_gdm_ferrier",
+            RMSE_CV=r.get("RMSE_CV"), MAE_CV=r.get("MAE_CV"), CRPS_CV=None,
+        ))
+
+# ---------------------------------------------------------------------------
 # Load frequentist CV summaries
 # ---------------------------------------------------------------------------
 FREQ_FILES = {
-    "SW Australia": os.path.join(RESULTS_DIR, "southwest", "southwest_freq_summary.csv"),
+    "SW Australia": os.path.join(RESULTS_DIR, "southwest", "southwest_freq_predictions.csv"),
     "Panama":       os.path.join(RESULTS_DIR, "panama",    "panama_freq_predictions.csv"),
     "GCFR":         os.path.join(RESULTS_DIR, "gcfr",      "gcfr_freq_predictions.csv"),
 }
@@ -135,6 +155,8 @@ for ds, fpath in BAYES_FILES.items():
     cv_df = pd.read_csv(fpath)
     for _, row in cv_df.iterrows():
         tag = row["config_tag"]
+        if args.no_poly and "polynomial" in tag:
+            continue
         label = MODEL_LABELS.get(tag, tag)
         n_folds = int(row.get("n_folds_run", row.get("n_folds", 0)))
         rows.append(dict(
