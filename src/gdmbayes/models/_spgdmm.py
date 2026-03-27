@@ -629,7 +629,7 @@ class spGDMM(BaseEstimator):
 
             res = minimize(obj, x0, method="BFGS")
             initvals["beta_0"] = float(res.x[0])
-            initvals["beta"] = np.exp(res.x[1:])
+            initvals["beta"] = np.maximum(np.exp(res.x[1:]), np.finfo(float).tiny)
 
             # Stage 1b: joint optimisation including psi (spatial effect).
             # White et al. initialises psi by optimising
@@ -660,7 +660,7 @@ class spGDMM(BaseEstimator):
 
                 res_sp = minimize(obj_spatial, x0_joint, method="BFGS")
                 initvals["beta_0"] = float(res_sp.x[0])
-                initvals["beta"] = np.exp(res_sp.x[1:p + 1])
+                initvals["beta"] = np.maximum(np.exp(res_sp.x[1:p + 1]), np.finfo(float).tiny)
                 initvals["psi"] = res_sp.x[p + 1:]
 
         # Stage 2: variance model (beta_sigma) via profile NLL.
