@@ -134,6 +134,34 @@ all_results[["Panama"]] = data.frame(
   RMSE_CV=m_pan["RMSE"], MAE_CV=m_pan["MAE"])
 
 # =============================================================================
+# 3. GCFR Family — Long/Lat coords, 7 env predictors, splines=5 (df=5, knots=2)
+# =============================================================================
+cat("=== R gdm 10-fold CV — GCFR Family ===\n")
+gcfr = read.csv(file.path(data_dir, "gcfr_family.csv"), check.names = FALSE)
+
+env_cols_gcfr = c("gmap", "RFL_CONC", "Elevation30m", "HeatLoadIndex30m",
+                  "tmean13c", "SoilConductivitymSm", "SoilTotalNPercent")
+meta_cols     = c("plot", "longitude", "latitude", "tminave01c", "tminave07c")
+family_cols   = setdiff(colnames(gcfr), c(meta_cols, env_cols_gcfr))
+
+# Bray-Curtis from family % cover matrix
+dist_gcfr = as.matrix(vegdist(gcfr[, family_cols], method = "bray"))
+y_gcfr    = dist_gcfr[upper.tri(dist_gcfr)]
+
+site_df_gcfr = data.frame(x = gcfr$longitude, y = gcfr$latitude)
+for (col in env_cols_gcfr) site_df_gcfr[[col]] = gcfr[[col]]
+
+sp_tab_gcfr = make_sitepair_df(site_df_gcfr, y_gcfr, env_cols_gcfr)
+
+m_gcfr = run_cv(sp_tab_gcfr, site_df_gcfr$x, site_df_gcfr$y, env_cols_gcfr,
+                splines_n = 5, k = 10)
+cat(sprintf("  RMSE (10-fold CV): %.4f  (White 2024 Ferrier: 0.1922)\n", m_gcfr["RMSE"]))
+cat(sprintf("  MAE  (10-fold CV): %.4f  (White 2024 Ferrier: 0.1569)\n", m_gcfr["MAE"]))
+all_results[["GCFR"]] = data.frame(
+  dataset="GCFR", model="R gdm (Ferrier, re-run)", splines=5, n_folds=10,
+  RMSE_CV=m_gcfr["RMSE"], MAE_CV=m_gcfr["MAE"])
+
+# =============================================================================
 # Save
 # =============================================================================
 out_df   = do.call(rbind, all_results); rownames(out_df) = NULL
