@@ -19,6 +19,7 @@ import pymc as pm
 import xarray as xr
 from scipy.spatial.distance import pdist
 from sklearn.base import BaseEstimator
+from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
 from ..preprocessing._config import PreprocessorConfig
@@ -192,7 +193,9 @@ class spGDMM(BaseEstimator):
         all_row_ind, all_col_ind = np.triu_indices(n_sites, k=1)
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
-        if not hasattr(self.preprocessor, "n_predictors_"):
+        try:
+            check_is_fitted(self.preprocessor)
+        except NotFittedError:
             self.preprocessor.fit(X)
         prep = self.preprocessor
 
