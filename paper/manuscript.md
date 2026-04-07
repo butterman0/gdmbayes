@@ -31,7 +31,7 @@ sites, 71 species). On SW Australia, our best Bayesian model (abs_diff spatial e
 homogeneous variance) achieves a 10-fold cross-validated RMSE of 0.0564 compared to
 0.0731 for the best White et al. model (a 23% improvement), while the gdmbayes
 frequentist GDM (RMSE = 0.0632) already outperforms the R gdm baseline (0.0737). On
-Panama, gdmbayes non-spatial models closely match White et al. (RMSE 0.095 vs 0.095),
+Panama, gdmbayes non-spatial models closely match White et al. (RMSE 0.0951 vs 0.0954),
 with limited improvement from spatial effects consistent with the small sample size.
 gdmbayes is the first Python GDM implementation and the only implementation—in any
 language—to offer full Bayesian inference for GDM. The package is freely available under
@@ -197,16 +197,16 @@ for site pair (i, j) is:
 
 where β_0 is a global intercept, **β**_k = (β_{k,1}, ..., β_{k,J}) ~ Dirichlet(1, ..., 1)
 are normalised I-spline coefficients for predictor k, **α** = (α_1, ..., α_K) ~
-HalfNormal(1) are per-predictor scale parameters (importance weights), and **β**^d ~
-LogNormal(0, 1) are geographic distance coefficients. The Dirichlet prior on **β**_k
+HalfNormal(2) are per-predictor scale parameters (importance weights), and **β**^d ~
+LogNormal(0, 10) are geographic distance coefficients. The Dirichlet prior on **β**_k
 enforces the constraint Σ_l β_{k,l} = 1, so that α_k captures the total magnitude of
 predictor k's contribution and **β**_k controls how that contribution is distributed across
 the I-spline basis functions. Without `alpha_importance`, coefficients follow independent
-LogNormal(0, 1) priors directly.
+LogNormal(0, 10) priors directly.
 
 **Variance structure.** Three built-in variance functions are available:
 
-- `"homogeneous"`: σ² ~ HalfNormal(1), constant across all pairs.
+- `"homogeneous"`: σ² ~ InverseGamma(1, 1), constant across all pairs.
 - `"covariate_dependent"`: σ² is a function of pairwise geographic distance.
 - `"polynomial"`: σ² is a polynomial function of the linear predictor μ.
 
@@ -542,6 +542,11 @@ modelling to analyse and predict patterns of beta diversity in regional biodiver
 assessment. *Diversity and Distributions*, **13**, 252–264.
 https://doi.org/10.1111/j.1472-4642.2007.00341.x
 
+Finley AO, Datta A, Cook BD, Morton DC, Andersen HE, Banerjee S (2019) Efficient
+algorithms for Bayesian nearest neighbor Gaussian processes. *Journal of Computational
+and Graphical Statistics*, **28**, 401–414.
+https://doi.org/10.1080/10618600.2018.1537924
+
 Fitzpatrick MC, Sanders NJ, Normand S, et al. (2013) Environmental and historical
 imprints on beta diversity: insights from variation in rates of species turnover along
 gradients. *Proceedings of the Royal Society B*, **280**, 20131201.
@@ -569,10 +574,6 @@ Mokany K, Harwood TD, Ferrier S (2012) A simulation study of landscape biodivers
 change under alternative scenarios: testing potential analysis methods. *Diversity and
 Distributions*, **18**, 1090–1103.
 
-Mostert PS, Bjorkås R, Bruls A, et al. (2025) intSDM: An R Package for Building a
-Reproducible Workflow for the Field of Integrated Species Distribution Models. *Ecology
-and Evolution*, **15**, e71029. https://doi.org/10.1002/ece3.71029
-
 Pedregosa F, Varoquaux G, Gramfort A, et al. (2011) Scikit-learn: Machine Learning in
 Python. *Journal of Machine Learning Research*, **12**, 2825–2830.
 
@@ -587,6 +588,9 @@ Statistical Science Technical Report*, 2011-14.
 
 Gelman A, Rubin DB (1992) Inference from iterative simulation using multiple sequences.
 *Statistical Science*, **7**, 457–472. https://doi.org/10.1214/ss/1177011136
+
+Vecchia AV (1988) Estimation and model identification for continuous spatial processes.
+*Journal of the Royal Statistical Society: Series B*, **50**, 297–312.
 
 White O, Heneghan RF, Ferrier S, et al. (2024) Bayesian generalised dissimilarity
 modelling to map and forecast spatial biodiversity change. *Ecology and Evolution*,
