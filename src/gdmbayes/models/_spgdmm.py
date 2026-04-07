@@ -124,8 +124,6 @@ class spGDMM(BaseEstimator):
         self.idata: az.InferenceData | None = None
         self._config_dict = self._config.to_dict()
         self.metadata: ModelMetadata | None = None
-        # Populated after each _transform_for_prediction call with clipping/NaN stats.
-        self.prediction_metadata: dict | None = None
         # Holdout mask for masked-holdout CV (White et al. 2024 strategy)
         self._holdout_mask: np.ndarray | None = None
 
@@ -379,46 +377,6 @@ class spGDMM(BaseEstimator):
 
         self.model = model
 
-    def _transform_for_prediction(
-        self, X_pred: pd.DataFrame | np.ndarray, biological_space: bool = False
-    ) -> np.ndarray:
-        """
-        Transform site-level predictors into GDM feature space.
-
-        Delegates to ``self.preprocessor.transform()``.
-
-        Parameters
-        ----------
-        X_pred : pd.DataFrame or np.ndarray
-            Site-level data with columns [xc, yc, time_idx, predictor1, ...]
-        biological_space : bool, default=False
-            If True, return per-site I-spline bases (n_sites × n_features×n_basis).
-            If False, return pairwise GDM feature matrix with distance splines appended.
-
-        Returns
-        -------
-        np.ndarray
-            Transformed feature matrix.
-        """
-        if not isinstance(X_pred, (pd.DataFrame, np.ndarray)):
-            raise TypeError("X must be Pandas DataFrame or numpy array")
-
-        if self.idata is None or "posterior" not in self.idata:
-            raise ValueError("Model must be fitted before transforming data.")
-
-        X_values = X_pred.iloc[:, 3:].values if isinstance(X_pred, pd.DataFrame) else X_pred[:, 3:]
-        if self.n_features_in_ is not None and X_values.shape[1] != self.n_features_in_:
-            raise ValueError(
-                f"X_pred has {X_values.shape[1]} environmental predictor(s) but the model "
-                f"was trained with {self.n_features_in_}."
-            )
-
-        result = self.preprocessor.transform(X_pred, biological_space=biological_space)
-        self.prediction_metadata = getattr(
-            self.preprocessor, "_last_prediction_metadata", None
-        )
-        return result
-
     def _data_setter(
         self,
         X: pd.DataFrame | np.ndarray,
@@ -429,7 +387,9 @@ class spGDMM(BaseEstimator):
         For spatial models, also updates ``row_indices`` and ``col_indices`` to
         match the prediction sites so the spatial effect term has the correct shape.
         """
-        X_transformed = self._transform_for_prediction(X)
+        if self.idata is None or "posterior" not in self.idata:
+            raise ValueError("Model must be fitted before predicting.")
+        X_transformed = self.preprocessor.transform(X)
         n_pred_pairs = X_transformed.shape[0]
 
         if y is None:

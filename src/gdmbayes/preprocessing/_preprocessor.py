@@ -206,6 +206,12 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         location_values = X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
         X_values = X.iloc[:, 3:].values if isinstance(X, pd.DataFrame) else X[:, 3:]
 
+        if X_values.shape[1] != self.n_predictors_:
+            raise ValueError(
+                f"X has {X_values.shape[1]} environmental predictor(s) but the "
+                f"preprocessor was fitted with {self.n_predictors_}."
+            )
+
         predictor_mesh = self.predictor_mesh_
         mode = cfg.extrapolation
 
@@ -265,11 +271,6 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             I_spline_bases_full = np.empty((X_values_clipped.shape[0], 0))
 
         if biological_space:
-            self._last_prediction_metadata = {
-                "n_sites_pred": X_values.shape[0],
-                "n_clipped_env": n_clipped_env,
-                "n_nan_rows": n_nan_rows,
-            }
             return I_spline_bases_full
 
         if I_spline_bases_full.shape[1] > 0:
@@ -313,14 +314,6 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
                 Isplines(cfg_obj.deg, dist_mesh, pw_distance_processed).I(j)
                 for j in range(1, n_spline_bases + 1)
             ])
-
-        self._last_prediction_metadata = {
-            "n_sites_pred": X_values.shape[0],
-            "n_pairs_pred": len(pw_distance),
-            "n_clipped_env": n_clipped_env,
-            "n_clipped_dist": n_clipped_dist,
-            "n_nan_rows": n_nan_rows,
-        }
 
         return np.column_stack([I_spline_bases_diffs, dist_predictors])
 

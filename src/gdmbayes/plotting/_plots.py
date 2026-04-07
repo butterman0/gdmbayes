@@ -39,8 +39,7 @@ def plot_isplines(model: "spGDMM", features=None, hdi_prob=0.9, figsize=(6.5, 4)
     None (displays plots inline)
     """
     idata = model.idata
-    config = model.config
-    meta = model.training_metadata
+    prep = model.preprocessor
 
     beta = idata.posterior.beta  # (chain, draw, feature, basis_function)
     n_bases = beta.sizes["basis_function"]
@@ -61,12 +60,13 @@ def plot_isplines(model: "spGDMM", features=None, hdi_prob=0.9, figsize=(6.5, 4)
     if has_alpha:
         alpha_mean = idata.posterior.alpha.mean(dim=["chain", "draw"])
 
-    predictor_mesh = meta["predictor_mesh"]  # (knots+2, n_env_features)
-    deg = config["deg"]
-    knots = config["knots"]
+    predictor_mesh = prep.predictor_mesh_
+    cfg = prep._get_config()
+    deg = cfg.deg
+    knots = cfg.knots
 
     for i, feat in enumerate(env_feats):
-        mesh_col = predictor_mesh[:, i]
+        mesh_col = predictor_mesh[i]
         x = np.linspace(mesh_col[0], mesh_col[-1], 300)
 
         spline = Isplines(deg, mesh_col, x)

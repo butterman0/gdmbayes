@@ -427,11 +427,11 @@ def gdm_transform(model, newdata: pd.DataFrame) -> pd.DataFrame:
     """
     spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
 
-    I_spline_bases = spgdmm_model._transform_for_prediction(newdata, biological_space=True)
+    I_spline_bases = spgdmm_model.preprocessor.transform(newdata, biological_space=True)
 
-    predictor_mesh = spgdmm_model.training_metadata.predictor_mesh
-    n_predictors = predictor_mesh.shape[0]
-    n_basis = spgdmm_model._config.deg + spgdmm_model._config.knots
+    prep = spgdmm_model.preprocessor
+    n_predictors = prep.n_predictors_
+    n_basis = prep.n_spline_bases_
     predictor_names = spgdmm_model.metadata.predictors or [f"pred_{i}" for i in range(n_predictors)]
 
     columns = [
@@ -463,8 +463,8 @@ def ispline_extract(model) -> dict:
     """
     spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
 
-    predictor_mesh = spgdmm_model.training_metadata.predictor_mesh
-    dist_mesh = spgdmm_model.training_metadata.dist_mesh
+    predictor_mesh = spgdmm_model.preprocessor.predictor_mesh_
+    dist_mesh = spgdmm_model.preprocessor.dist_mesh_
     predictor_names = spgdmm_model.metadata.predictors
 
     result = {}

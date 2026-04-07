@@ -369,11 +369,11 @@ class TestDataPreprocessing:
 
 
 class TestExtrapolation:
-    """Test extrapolation mode handling in _transform_for_prediction."""
+    """Test extrapolation mode handling in preprocessor.transform()."""
 
     @pytest.fixture
     def fitted_model(self):
-        """Set up a preprocessed model with a stub idata so _transform_for_prediction runs."""
+        """Set up a preprocessed model."""
         np.random.seed(0)
         n_sites = 15
         X = pd.DataFrame({
@@ -388,8 +388,6 @@ class TestExtrapolation:
 
         model = spGDMM()
         model._generate_and_preprocess_model_data(X, y)
-        # Minimal stub so the fitted-check passes
-        model.idata = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
         return model, X
 
     def _make_oob_X(self, X_train):
@@ -421,13 +419,13 @@ class TestExtrapolation:
         X_oob = self._make_oob_X(X)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            model._transform_for_prediction(X_oob)
+            model.preprocessor.transform(X_oob)
         assert any("clipped" in str(w.message).lower() for w in caught)
 
     def test_clip_mode_returns_array(self, fitted_model):
         model, X = fitted_model
         X_oob = self._make_oob_X(X)
-        result = model._transform_for_prediction(X_oob)
+        result = model.preprocessor.transform(X_oob)
         assert isinstance(result, np.ndarray)
         assert not np.isnan(result).any()
 
@@ -436,19 +434,19 @@ class TestExtrapolation:
         model.preprocessor.config = PreprocessorConfig(extrapolation="error")
         X_oob = self._make_oob_X(X)
         with pytest.raises(ValueError, match="outside predictor_mesh bounds"):
-            model._transform_for_prediction(X_oob)
+            model.preprocessor.transform(X_oob)
 
     def test_error_mode_no_raise_in_range(self, fitted_model):
         model, X = fitted_model
         model.preprocessor.config = PreprocessorConfig(extrapolation="error")
         # Should not raise when all values are within training range
-        model._transform_for_prediction(X)
+        model.preprocessor.transform(X)
 
     def test_nan_mode_produces_nans(self, fitted_model):
         model, X = fitted_model
         model.preprocessor.config = PreprocessorConfig(extrapolation="nan")
         X_oob = self._make_oob_X(X)
-        result = model._transform_for_prediction(X_oob)
+        result = model.preprocessor.transform(X_oob)
         # Some rows must contain NaN (pairs involving the out-of-range site)
         assert np.isnan(result).any()
 
@@ -456,7 +454,7 @@ class TestExtrapolation:
         model, X = fitted_model
         model.preprocessor.config = PreprocessorConfig(extrapolation="nan")
         # All in-range — no NaN expected
-        result = model._transform_for_prediction(X)
+        result = model.preprocessor.transform(X)
         assert not np.isnan(result).any()
 
 
@@ -741,8 +739,8 @@ class TestSpGDMMSaveLoad:
     def test_load_transform_consistency(self, fitted_artifacts):
         original, save_path, X, _ = fitted_artifacts
         loaded = spGDMM.load(str(save_path))
-        orig_result = original._transform_for_prediction(X)
-        load_result = loaded._transform_for_prediction(X)
+        orig_result = original.preprocessor.transform(X)
+        load_result = loaded.preprocessor.transform(X)
         np.testing.assert_array_almost_equal(orig_result, load_result)
 
     def test_load_idata_has_posterior(self, fitted_artifacts):
