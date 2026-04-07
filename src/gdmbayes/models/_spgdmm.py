@@ -115,31 +115,7 @@ class spGDMM(BaseEstimator):
                 f"got {type(preprocessor)!r}"
             )
 
-        # ------------------------------------------------------------------ #
-        # Resolve model_config — detect legacy preprocessing keys and warn
-        # ------------------------------------------------------------------ #
-        _PREPROCESSING_KEYS = {
-            "deg", "knots", "mesh_choice", "distance_measure",
-            "custom_dist_mesh", "custom_predictor_mesh", "extrapolation",
-            "diss_metric", "time_predictor", "connected_pairs_only",
-            "updated_predictor_mesh", "time_varying", "connectivity_percentile",
-            "length_scale",
-        }
-
         if isinstance(model_config, dict):
-            legacy_keys = _PREPROCESSING_KEYS.intersection(model_config)
-            if legacy_keys and preprocessor is None:
-                warnings.warn(
-                    f"Passing preprocessing key(s) {sorted(legacy_keys)!r} via model_config "
-                    f"is deprecated. Use PreprocessorConfig / GDMPreprocessor instead. "
-                    f"The keys will be auto-forwarded to the preprocessor this time.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                prep_kwargs = {k: model_config[k] for k in legacy_keys}
-                self.preprocessor = GDMPreprocessor(
-                    config=PreprocessorConfig.from_dict(prep_kwargs)
-                )
             self._config = ModelConfig.from_dict(model_config)
             # Store the exact dict reference so sklearn.clone() identity check passes.
             self.model_config = model_config

@@ -542,9 +542,9 @@ class TestSpGDMMSklearnInterface:
         )
         assert model.id == model2.id
 
-    def test_legacy_model_config_keys_warn(self):
-        with pytest.warns(DeprecationWarning):
-            spGDMM(model_config={"deg": 5})
+    def test_preprocessor_config_deg(self):
+        model = spGDMM(preprocessor=PreprocessorConfig(deg=5))
+        assert model.preprocessor.config.deg == 5
 
     def test_preprocessor_skips_refit(self):
         X, y = _make_sample_data()
