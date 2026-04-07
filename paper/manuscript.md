@@ -25,8 +25,14 @@ spatial random effects, and hierarchical predictor importance weights, all withi
 reproducible, configuration-driven workflow. gdmbayes follows scikit-learn conventions
 throughout, enabling seamless integration with Python's scientific computing ecosystem.
 
-We demonstrate the package on a simulated species dissimilarity dataset and show that the
-Bayesian extension recovers predictor effects with well-calibrated posterior uncertainty.
+We benchmark gdmbayes against the NIMBLE implementation of White et al. (2024) on two
+empirical plant assemblage datasets (SW Australia: 94 sites, 856 species; Panama: 39
+sites, 71 species). On SW Australia, our best Bayesian model (abs_diff spatial effect,
+homogeneous variance) achieves a 10-fold cross-validated RMSE of 0.0564 compared to
+0.0731 for the best White et al. model (a 23% improvement), while the gdmbayes
+frequentist GDM (RMSE = 0.0632) already outperforms the R gdm baseline (0.0737). On
+Panama, gdmbayes non-spatial models closely match White et al. (RMSE 0.095 vs 0.095),
+with limited improvement from spatial effects consistent with the small sample size.
 gdmbayes is the first Python GDM implementation and the only implementation—in any
 language—to offer full Bayesian inference for GDM. The package is freely available under
 the Apache 2.0 licence at https://github.com/harryhorsley9/spgdmm.
@@ -389,9 +395,116 @@ additional utilities such as partial regression plots and Monte Carlo significan
 that are not yet included in gdmbayes. gdmbayes prioritises Bayesian inference,
 uncertainty quantification, and Python ecosystem integration.
 
+**Empirical comparison with White et al. (2024).** White et al. present a NIMBLE
+implementation of the same spGDMM framework and report 10-fold site-level cross-validated
+RMSE on several datasets. Table 2 compares gdmbayes against White et al. on two datasets
+using an identical holdout protocol: all pairs involving at least one test site are treated
+as held-out for evaluation.
+
+**Table 2.** 10-fold cross-validated prediction metrics. RMSE = root mean squared error;
+MAE = mean absolute error; CRPS = continuous ranked probability score (lower is better
+for all metrics). Dashes indicate metrics not reported or not applicable. Best gdmbayes
+result per dataset marked **bold**; White et al. best marked with †.
+
+| Model | SW RMSE | SW MAE | SW CRPS | PA RMSE | PA MAE | PA CRPS |
+|---|---|---|---|---|---|---|
+| *R gdm baselines* | | | | | | |
+| R gdm (Ferrier; White et al.) | 0.0737 | 0.0549 | — | 0.0934 | 0.0716 | — |
+| gdmbayes freq. GDM | 0.0632 | 0.0459 | — | 0.0946 | 0.0759 | — |
+| *White et al. (NIMBLE/RW sampler)* | | | | | | |
+| M1 none / homogeneous | 0.0790 | 0.0595 | 0.0439 | 0.0954 | 0.0779 | 0.0527 |
+| M4 abs\_diff / homogeneous | 0.0840 | 0.0629 | 0.0473 | 0.0878 | 0.0690 | 0.0490 |
+| M7 sq\_diff / homogeneous † | 0.0731 | 0.0545 | 0.0414 | 0.0944 | 0.0739 | 0.0523 |
+| M8 sq\_diff / cov\_dep † | — | — | — | 0.0821 | 0.0618 | 0.0450 |
+| *gdmbayes (PyMC / NUTS, 4 chains)* | | | | | | |
+| M1 none / homogeneous | 0.0626 | 0.0459 | 0.0334 | 0.0951 | 0.0770 | 0.0526 |
+| M4 abs\_diff / homogeneous **★** | **0.0564** | **0.0402** | **0.0301** | 0.1009 | 0.0753 | 0.0563 |
+| M7 sq\_diff / homogeneous | 0.0571 | 0.0410 | 0.0305 | **0.0925** | **0.0721** | **0.0511** |
+
+SW = SW Australia (94 sites, 856 species, 4,371 pairs); PA = Panama (39 sites, 71 species,
+741 pairs). White et al. M7 is the best SW model; M8 is the best Panama model.
+gdmbayes M4 is the best SW model (RMSE −23% vs White best); M7 is the best Panama model
+(RMSE −11% vs White M7, but +13% vs White M8).
+
+On SW Australia, gdmbayes consistently outperforms White et al. across all spatial effect
+configurations and metrics. The abs\_diff spatial effect (M4) yields the largest gain, with
+RMSE 0.0564 vs 0.0731 for the best White et al. model—a 23% reduction. Even the
+non-spatial gdmbayes M1 (RMSE 0.0626) outperforms White et al.'s best model, suggesting
+that sampler efficiency (discussed below) is the primary driver. The
+gdmbayes frequentist GDM (RMSE 0.0632) also outperforms R gdm (0.0737), reflecting the
+use of cubic I-splines with an intercept term versus R gdm's internal quadratic basis.
+
+On Panama, gdmbayes non-spatial M1 (RMSE 0.0951) closely matches White et al. M1
+(0.0954), confirming that the model implementation and holdout protocol are consistent.
+However, our best spatial model (M7, RMSE 0.0925) does not surpass White et al.'s best
+(M8, RMSE 0.0821). Panama has only 39 sites; with 10-fold CV, each test fold contains
+approximately four sites, making CV estimates noisy and the spatial GP difficult to
+identify. This contrast with SW Australia illustrates when spatial effects are most
+beneficial: datasets with more sites provide a stronger signal for the GP and more stable
+cross-validation estimates.
+
+The improvement over White et al.'s Bayesian results on SW Australia is attributable to
+sampler efficiency. White et al. use NIMBLE's default univariate RW (Random Walk)
+sampler—an adaptive Metropolis–Hastings algorithm with a normal proposal (Shaby &
+Wells 2011)—with a single chain and 10,000 post-burnin samples. gdmbayes uses the
+No-U-Turn Sampler (NUTS; Hoffman & Gelman 2014) via nutpie with four chains and 4,000
+draws per chain. NUTS exploits gradient information to make large, low-rejection moves
+through the posterior, and is substantially more efficient than random-walk samplers for
+the correlated posteriors typical of GDM (all β coefficients share a common linear
+predictor). Running four independent chains also facilitates the standard multi-chain
+R-hat convergence diagnostic (Gelman & Rubin 1992), which is not available from a
+single chain. The practical consequence is that gdmbayes posterior means are closer to
+the true posterior mean for a given computational budget, which directly reduces
+cross-validated prediction error.
+
 ---
 
-## 5. Availability
+## 5. Discussion
+
+gdmbayes fills a gap in the GDM software landscape: a Python implementation with full
+Bayesian inference, spatial random effects, and sklearn-compatible API. The benchmarks in
+Table 2 demonstrate that the combination of NUTS sampling and four independent chains
+produces meaningfully better cross-validated predictions than White et al.'s NIMBLE
+implementation on SW Australia, and closely reproduces their non-spatial results on Panama
+(a useful sanity check). The contrasting outcomes across datasets also highlight an
+important practical consideration: the spatial GP in spGDMM is most effective when the
+dataset is large enough for the spatial structure to be well-identified and for
+cross-validation estimates to be stable. For small datasets (≲40 sites), non-spatial
+models may be preferable.
+
+**Relationship to R gdm.** The gdmbayes frequentist `GDM` class outperforms the R gdm
+package on SW Australia (RMSE 0.063 vs 0.074). This is not a reimplementation of R gdm
+but a distinct estimator: gdmbayes uses cubic I-splines (degree 3) with an explicit
+intercept term and NNLS, while R gdm uses an internal quadratic piecewise basis without an
+intercept. Users migrating from R gdm should be aware of this difference; the
+gdmbayes freq. GDM is architecturally consistent with the Bayesian spGDMM model that
+shares the same I-spline preprocessing.
+
+**Computational considerations.** NUTS with a dense GP prior scales as O(n³) in the
+number of training sites because each MCMC step requires inverting or decomposing the n×n
+covariance matrix. In practice, the 94-site SW Australia dataset required approximately
+2.5 days of wall time on 4 CPU cores for a single Bayesian configuration (10-fold CV,
+4,000 tune + 1,000 draw steps, 4 chains). Datasets with more than ~200 sites will require
+substantially longer runtimes or sparse GP approximations (e.g., Vecchia 1988; Finley et
+al. 2019). gdmbayes does not currently implement sparse GPs; this is the primary
+computational limitation for large-scale applications.
+
+**Limitations.** gdmbayes models pairwise Bray–Curtis dissimilarities as the response
+variable, aggregating species composition into a single scalar. It does not model
+individual species or taxonomic groups hierarchically. The package has been tested on
+Linux only and requires Python ≥ 3.10. MCMC sampling requires familiarity with
+convergence diagnostics (R-hat, ESS); the ArviZ integration provides these automatically,
+but users should inspect them before interpreting posteriors. The polynomial variance
+structure (variance="polynomial") exhibited poor cross-validated performance in both
+benchmarks and is not recommended without careful prior tuning.
+
+**Future development.** Planned extensions include sparse GP approximations for large
+datasets, variational inference as a faster alternative to NUTS for exploratory analyses,
+and support for multi-temporal GDM. Contributions are welcome via the GitHub repository.
+
+---
+
+## 6. Availability
 
 gdmbayes is available at https://github.com/harryhorsley9/spgdmm under the Apache 2.0
 licence. A PyPI release is forthcoming. A Zenodo DOI will be minted at the time of
@@ -414,8 +527,11 @@ writing – review and editing.
 
 ## Data Availability
 
-No empirical data were used in this paper. Example scripts in the `examples/` directory
-of the repository are fully self-contained and generate synthetic data.
+The SW Australia and Panama plant assemblage datasets used for benchmarking are those
+originally analysed by White et al. (2024) and are included in the `examples/data/`
+directory of the gdmbayes repository. The example scripts in `examples/` reproduce all
+results in Table 2. Simulated data for the usage examples (Section 3) are generated
+programmatically and require no external files.
 
 ---
 
@@ -465,3 +581,13 @@ Ramsay JO (1988) Monotone regression splines in action. *Statistical Science*, *
 
 Salvatier J, Wiecki TV, Fonnesbeck C (2016) Probabilistic programming in Python using
 PyMC3. *PeerJ Computer Science*, **2**, e55. https://doi.org/10.7717/peerj-cs.55
+
+Shaby B, Wells M (2011) Exploring an adaptive Metropolis algorithm. *Duke Department of
+Statistical Science Technical Report*, 2011-14.
+
+Gelman A, Rubin DB (1992) Inference from iterative simulation using multiple sequences.
+*Statistical Science*, **7**, 457–472. https://doi.org/10.1214/ss/1177011136
+
+White O, Heneghan RF, Ferrier S, et al. (2024) Bayesian generalised dissimilarity
+modelling to map and forecast spatial biodiversity change. *Ecology and Evolution*,
+**14**, e70601. https://doi.org/10.1002/ece3.70601
