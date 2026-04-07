@@ -7,7 +7,6 @@ dissimilarities as a function of environmental predictors and spatial distance.
 
 import hashlib
 import json
-import typing as t
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +16,6 @@ import numpy as np
 import pandas as pd
 import pymc as pm
 import xarray as xr
-from scipy.spatial.distance import pdist
 from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
@@ -25,8 +23,8 @@ from sklearn.utils.validation import check_is_fitted
 from ..preprocessing._config import PreprocessorConfig
 from ..preprocessing._preprocessor import GDMPreprocessor
 from ._config import ModelConfig, SamplerConfig
-from ._variance import VARIANCE_FUNCTIONS
 from ._spatial import SPATIAL_FUNCTIONS
+from ._variance import VARIANCE_FUNCTIONS
 
 
 @dataclass
@@ -199,41 +197,21 @@ class spGDMM(BaseEstimator):
             self.preprocessor.fit(X)
         prep = self.preprocessor
 
-        cfg = prep._get_config()
         n_spline_bases = prep.n_spline_bases_
         n_predictors = prep.n_predictors_
         predictor_names_from_data = prep.predictor_names_
 
-        # Build pairwise I-spline diffs
-        I_spline_bases = prep.I_spline_bases_
-        if I_spline_bases.shape[1] > 0:
-            I_spline_bases_diffs = np.array([
-                pdist(I_spline_bases[:, i].reshape(-1, 1), metric="euclidean")
-                for i in range(I_spline_bases.shape[1])
-            ]).T
-        else:
-            I_spline_bases_diffs = np.empty((n_sites * (n_sites - 1) // 2, 0))
+        # Delegate pairwise I-spline diffs + distance splines to preprocessor.
+        X_GDM_fit = prep.transform(X)
 
-        # Compute distance splines using pw_distance on training locations
-        pw_distance = prep.pw_distance(prep.location_values_train_)
-        dist_mesh = prep.dist_mesh_
-        pw_dist_clipped = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
-        from dms_variants.ispline import Isplines
-        dist_spline_bases = np.column_stack([
-            Isplines(cfg.deg, dist_mesh, pw_dist_clipped).I(j)
-            for j in range(1, n_spline_bases + 1)
-        ])
-
-        # Combine features
-        X_GDM = np.column_stack([I_spline_bases_diffs, dist_spline_bases])
-
-        X_GDM_fit = X_GDM
-        log_y_fit = log_y
-        pw_dist_fit = pw_dist_clipped
         self._pair_indices = (all_row_ind, all_col_ind)
 
-        n_cols_env = I_spline_bases_diffs.shape[1] if I_spline_bases_diffs.size > 0 else 0
-        n_cols_dist = dist_spline_bases.shape[1] if dist_spline_bases.size > 0 else 0
+        n_cols_env = n_predictors * n_spline_bases
+        n_cols_dist = n_spline_bases
+
+        # Recompute clipped pairwise distance for the QR polynomial basis (X_sigma).
+        pw_distance = prep.pw_distance(prep.location_values_train_)
+        pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
 
         # Standardise pairwise distances before polynomial expansion to reduce
         # collinearity in X_sigma (matching the intent of R's poly()).
@@ -286,7 +264,7 @@ class spGDMM(BaseEstimator):
         self.n_features_in_ = n_predictors
 
         self.X_transformed = X_GDM_fit
-        self.y_transformed = log_y_fit
+        self.y_transformed = log_y
 
     def build_model(
         self,
