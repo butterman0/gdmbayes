@@ -1,6 +1,5 @@
 """Configuration dataclasses for the spGDMM Bayesian estimator."""
 
-import warnings
 from dataclasses import dataclass
 from typing import Callable, Optional, Union
 
@@ -35,15 +34,6 @@ class SamplerConfig:
         valid_fields = {k: v for k, v in config_dict.items() if k in cls.__dataclass_fields__}
         return cls(**valid_fields)
 
-
-# Keys that used to live in ModelConfig but now belong in PreprocessorConfig.
-_PREPROCESSING_KEYS = frozenset({
-    "deg", "knots", "mesh_choice", "distance_measure",
-    "custom_dist_mesh", "custom_predictor_mesh", "extrapolation",
-    "diss_metric", "time_predictor", "connected_pairs_only",
-    "updated_predictor_mesh", "time_varying", "connectivity_percentile",
-    "length_scale",
-})
 
 _VALID_VARIANCE = frozenset({"homogeneous", "covariate_dependent", "polynomial"})
 _VALID_SPATIAL = frozenset({"none", "abs_diff", "squared_diff"})
@@ -128,22 +118,7 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, config_dict: dict) -> "ModelConfig":
-        """Create from dictionary.
-
-        Deprecated preprocessing keys (``deg``, ``knots``, ``mesh_choice``, etc.)
-        are silently ignored with a deprecation warning so that configs serialized
-        with older versions of the library can still be loaded.
-        """
-        removed = _PREPROCESSING_KEYS.intersection(config_dict)
-        if removed:
-            warnings.warn(
-                f"ModelConfig.from_dict() received deprecated preprocessing key(s) "
-                f"{sorted(removed)!r}. These settings now belong in PreprocessorConfig "
-                f"and are ignored here.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
+        """Create from dictionary."""
         variance = config_dict.get("variance", "homogeneous")
         spatial_effect = config_dict.get("spatial_effect", "none")
 

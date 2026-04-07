@@ -79,20 +79,10 @@ class TestModelConfig:
         assert "distance_measure" not in d
 
     def test_config_from_dict(self):
-        """Test creating config from dictionary — preprocessing keys emit DeprecationWarning."""
-        import warnings as _warnings
+        """Test creating config from dictionary."""
         d = {"variance": "homogeneous", "spatial_effect": "none"}
         config = ModelConfig.from_dict(d)
         assert config.variance == "homogeneous"
-
-        # Legacy keys should trigger a DeprecationWarning but not crash
-        legacy_d = {"deg": 5, "knots": 2, "mesh_choice": "even", "distance_measure": "geodesic"}
-        with _warnings.catch_warnings(record=True) as caught:
-            _warnings.simplefilter("always")
-            config2 = ModelConfig.from_dict(legacy_d)
-        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
-        # Result is still a valid ModelConfig
-        assert isinstance(config2, ModelConfig)
 
 
 class TestPreprocessorConfig:
