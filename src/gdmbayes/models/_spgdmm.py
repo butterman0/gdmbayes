@@ -32,29 +32,14 @@ class ModelMetadata:
     """Column counts, predictor names, and variance-model data for a fitted spGDMM."""
 
     no_sites_train: int
-    no_predictors: int
-    no_rows: int
     no_cols: int
     no_cols_env: int
     no_cols_dist: int
     predictors: list        # semantic predictor names
-    column_names: list      # feature-matrix column names
     X_sigma: np.ndarray | None   # pairwise distance column for variance model
-    p_sigma: int            # 1 if X_sigma is used, 0 otherwise
     d_mean: float           # mean of training pw_distance (for X_sigma standardisation)
     d_std: float            # std  of training pw_distance (for X_sigma standardisation)
     poly_transform: np.ndarray | None  # R_inv from QR of Vandermonde; maps raw monomials to orthogonal basis
-
-
-@dataclass
-class TrainingMetadata:
-    """Spline meshes and spatial state needed to transform new data consistently."""
-
-    location_values_train: np.ndarray  # (n_sites, 2) site coordinates
-    predictor_mesh: np.ndarray         # (n_predictors, n_knot_points)
-    dist_mesh: np.ndarray              # (n_knot_points,)
-    length_scale: float                # GP spatial length scale
-    I_spline_bases: np.ndarray         # (n_sites, n_predictors * n_bases)
 
 
 class spGDMM(BaseEstimator):
@@ -139,7 +124,6 @@ class spGDMM(BaseEstimator):
         self.idata: az.InferenceData | None = None
         self._config_dict = self._config.to_dict()
         self.metadata: ModelMetadata | None = None
-        self.training_metadata: TrainingMetadata | None = None
         # Populated after each _transform_for_prediction call with clipping/NaN stats.
         self.prediction_metadata: dict | None = None
         # Holdout mask for masked-holdout CV (White et al. 2024 strategy)
@@ -239,26 +223,14 @@ class spGDMM(BaseEstimator):
 
         self.metadata = ModelMetadata(
             no_sites_train=n_sites,
-            no_predictors=n_predictors,
-            no_rows=X_GDM_fit.shape[0],
             no_cols=X_GDM_fit.shape[1],
             no_cols_env=n_cols_env,
             no_cols_dist=n_cols_dist,
             predictors=predictor_names_from_data if n_predictors > 0 else [],
-            column_names=[f"x_{i}" for i in range(X_GDM_fit.shape[1])],
             X_sigma=X_sigma,
-            p_sigma=1 if n_predictors > 0 else 0,
             d_mean=d_mean,
             d_std=d_std,
             poly_transform=poly_transform,
-        )
-
-        self.training_metadata = TrainingMetadata(
-            location_values_train=prep.location_values_train_,
-            predictor_mesh=prep.predictor_mesh_,
-            dist_mesh=prep.dist_mesh_,
-            length_scale=prep.length_scale_,
-            I_spline_bases=prep.I_spline_bases_,
         )
 
         self.n_features_in_ = n_predictors
@@ -295,9 +267,15 @@ class spGDMM(BaseEstimator):
         cfg = self.preprocessor._get_config()
         n_spline_bases = cfg.deg + cfg.knots
 
+        predictor_names = self.preprocessor.predictor_names_
+        column_names = [
+            f"{name}_s{j}" for name in predictor_names
+            for j in range(1, n_spline_bases + 1)
+        ] + [f"dist_s{j}" for j in range(1, n_spline_bases + 1)]
+
         self.model_coords = {
             "obs_pair": np.arange(X_values.shape[0]),
-            "predictor": self.metadata.column_names,
+            "predictor": column_names,
             "site_train": np.arange(self.metadata.no_sites_train),
             "feature": self.metadata.predictors,
             "basis_function": np.arange(1, n_spline_bases + 1),
@@ -352,8 +330,8 @@ class spGDMM(BaseEstimator):
 
             if self._config.spatial_effect != "none":
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
-                location_values = self.training_metadata.location_values_train
-                length_scale = self.training_metadata.length_scale
+                location_values = self.preprocessor.location_values_train_
+                length_scale = self.preprocessor.length_scale_
 
                 cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale)
                 gp = pm.gp.Latent(cov_func=cov)

@@ -349,7 +349,6 @@ class TestDataPreprocessing:
 
         # Check metadata is created
         assert model.metadata is not None
-        assert model.training_metadata is not None
 
         # Check transformed data exists
         assert hasattr(model, "X_transformed")

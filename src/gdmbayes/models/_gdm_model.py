@@ -272,10 +272,11 @@ class GDMModel(BaseEstimator):
         # Coefficients and knots from preprocessor
         coefficients = {}
         knots_dict = {}
-        if hasattr(self._spgdmm, "training_metadata") and self._spgdmm.training_metadata:
-            pred_mesh = self._spgdmm.training_metadata.predictor_mesh
+        prep = self._spgdmm.preprocessor
+        if hasattr(prep, "predictor_mesh_"):
+            pred_mesh = prep.predictor_mesh_
             if pred_mesh is not None and pred_mesh.shape[0] > 0:
-                n_bases = self._spgdmm.preprocessor.n_spline_bases_
+                n_bases = prep.n_spline_bases_
                 beta_median = (
                     idata.posterior["beta"].median(dim=["chain", "draw"]).values
                     if "beta" in idata.posterior
@@ -292,7 +293,7 @@ class GDMModel(BaseEstimator):
                                 coefficients[pred] = beta_median[start:end].tolist()
                         else:
                             coefficients[pred] = []
-            dist_mesh = self._spgdmm.training_metadata.dist_mesh
+            dist_mesh = prep.dist_mesh_
             if self.geo and dist_mesh is not None:
                 knots_dict["geographic"] = dist_mesh
 
