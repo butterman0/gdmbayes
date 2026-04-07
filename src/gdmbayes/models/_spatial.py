@@ -35,15 +35,16 @@ same signature to :class:`~gdmbayes.ModelConfig`:
 
 from typing import Callable, Dict
 
-import pymc as pm
-
 
 def spatial_abs_diff(psi, row_ind, col_ind):
     """Spatial effect as the absolute difference of GP values between sites.
 
     Returns ``|psi[i] - psi[j]|`` for each pair ``(i, j)``.
+
+    Uses the Python ``abs()`` builtin, which dispatches correctly to both
+    numpy (``np.abs``) and PyTensor (``pytensor.tensor.abs``).
     """
-    return pm.math.abs(psi[row_ind] - psi[col_ind])
+    return abs(psi[row_ind] - psi[col_ind])
 
 
 def spatial_squared_diff(psi, row_ind, col_ind):

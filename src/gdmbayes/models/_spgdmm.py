@@ -172,7 +172,6 @@ class spGDMM(BaseEstimator):
         self.y = log_y
 
         n_sites = X.shape[0]
-        all_row_ind, all_col_ind = np.triu_indices(n_sites, k=1)
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
         try:
@@ -187,8 +186,6 @@ class spGDMM(BaseEstimator):
 
         # Delegate pairwise I-spline diffs + distance splines to preprocessor.
         X_GDM_fit = prep.transform(X)
-
-        self._pair_indices = (all_row_ind, all_col_ind)
 
         n_cols_env = n_predictors * n_spline_bases
         n_cols_dist = n_spline_bases
@@ -337,9 +334,10 @@ class spGDMM(BaseEstimator):
                 gp = pm.gp.Latent(cov_func=cov)
                 psi = gp.prior("psi", X=location_values, dims=("site_train",))
 
-                row_ind, col_ind = self._pair_indices
                 # Use pm.Data so indices can be updated via pm.set_data during prediction
                 # when X_pred has a different number of sites than X_train.
+                n_train = self.metadata.no_sites_train
+                row_ind, col_ind = np.triu_indices(n_train, k=1)
                 row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
                 col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
 
@@ -537,10 +535,20 @@ class spGDMM(BaseEstimator):
         p = X_GDM.shape[1]
 
         # Pair indices (for spatial init), filtered to observed pairs if holdout
-        row_ind, col_ind = self._pair_indices
+        n_train = self.metadata.no_sites_train
+        row_ind, col_ind = np.triu_indices(n_train, k=1)
         if self._holdout_mask is not None:
             row_ind = row_ind[~self._holdout_mask]
             col_ind = col_ind[~self._holdout_mask]
+
+        # Resolve the spatial function once (works on both numpy and pytensor
+        # since the registered functions use only generic ops like abs() and **).
+        spatial_effect = self._config.spatial_effect
+        if spatial_effect != "none":
+            spatial_fn = (
+                spatial_effect if callable(spatial_effect)
+                else SPATIAL_FUNCTIONS[spatial_effect]
+            )
 
         initvals = {}
 
@@ -570,14 +578,8 @@ class spGDMM(BaseEstimator):
             # White et al. initialises psi by optimising
             #   sum((log_y - b0 - X @ exp(log_b) - spatial(psi))^2)
             # jointly over [beta_0, log_beta, psi].
-            if self._config.spatial_effect != "none":
-                ns = self.metadata.no_sites_train
-                spatial_type = self._config.spatial_effect
-
-                if callable(spatial_type):
-                    spatial_name = "custom"
-                else:
-                    spatial_name = spatial_type
+            if spatial_effect != "none":
+                ns = n_train
 
                 x0_psi = np.random.default_rng(42).normal(0, 0.1, size=ns)
                 x0_joint = np.concatenate([res.x, x0_psi])
@@ -587,15 +589,14 @@ class spGDMM(BaseEstimator):
                     log_b = par[1:p + 1]
                     psi = par[p + 1:]
                     pred = b0 + X_GDM @ np.exp(log_b)
-                    if spatial_name == "abs_diff":
-                        pred = pred + np.abs(psi[row_ind] - psi[col_ind])
-                    elif spatial_name == "squared_diff":
-                        pred = pred + (psi[row_ind] - psi[col_ind]) ** 2
+                    pred = pred + spatial_fn(psi, row_ind, col_ind)
                     return np.sum((log_y - pred) ** 2)
 
                 res_sp = minimize(obj_spatial, x0_joint, method="BFGS")
                 initvals["beta_0"] = float(res_sp.x[0])
-                initvals["beta"] = np.maximum(np.exp(res_sp.x[1:p + 1]), np.finfo(float).tiny)
+                initvals["beta"] = np.maximum(
+                    np.exp(res_sp.x[1:p + 1]), np.finfo(float).tiny
+                )
                 initvals["psi"] = res_sp.x[p + 1:]
 
         # Stage 2: variance model (beta_sigma) via profile NLL.
@@ -607,13 +608,9 @@ class spGDMM(BaseEstimator):
             mu_fixed = initvals["beta_0"] + X_GDM @ initvals["beta"]
             # Include spatial effect in mu_fixed if psi was initialized
             if "psi" in initvals:
-                psi_init = initvals["psi"]
-                if self._config.spatial_effect == "abs_diff" or (
-                    callable(self._config.spatial_effect)
-                ):
-                    mu_fixed = mu_fixed + np.abs(psi_init[row_ind] - psi_init[col_ind])
-                elif self._config.spatial_effect == "squared_diff":
-                    mu_fixed = mu_fixed + (psi_init[row_ind] - psi_init[col_ind]) ** 2
+                mu_fixed = mu_fixed + spatial_fn(
+                    initvals["psi"], row_ind, col_ind
+                )
             residuals = log_y - mu_fixed
 
             variance_type = (
