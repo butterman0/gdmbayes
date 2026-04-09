@@ -33,20 +33,6 @@ from .models.spatial import (
     SPATIAL_FUNCTIONS,
 )
 
-# Distance utilities (general, not ocean-specific)
-from .distances import (
-    DistanceCalculator,
-    compute_distance_matrix,
-    euclidean_distance,
-    geodesic_distance,
-)
-
-# Backward compatibility (deprecated)
-from .distances import (
-    OceanPathDistance as _OceanPathDistance,
-    ocean_path_distance_pdist as _ocean_path_distance_pdist,
-)
-
 # Plotting
 from .plotting.plots import (
     plot_isplines,
@@ -88,11 +74,6 @@ __all__ = [
     # Preprocessor
     "PreprocessorConfig",
     "GDMPreprocessor",
-    # Distance utilities
-    "DistanceCalculator",
-    "compute_distance_matrix",
-    "euclidean_distance",
-    "geodesic_distance",
     # Utilities
     "site_pairs",
     "holdout_pairs",

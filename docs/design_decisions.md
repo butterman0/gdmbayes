@@ -63,4 +63,4 @@ Full-data `.nc` files in the Panama example use `fcntl.flock` to avoid HDF5 race
 
 ## Distance Calculations
 
-Distance calculations (`distances/general.py`, `distances/_ocean.py`) are modular and support Euclidean, geodesic, and grid-based ocean path distances.
+Pairwise geographic distances are computed internally by `GDMPreprocessor.pw_distance()` using `scipy.spatial.distance.pdist` (euclidean) or `geopy.distance.geodesic` (geodesic).
