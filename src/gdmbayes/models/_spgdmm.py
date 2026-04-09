@@ -8,7 +8,6 @@ dissimilarities as a function of environmental predictors and spatial distance.
 import hashlib
 import json
 import warnings
-from dataclasses import dataclass
 from pathlib import Path
 
 import arviz as az
@@ -26,20 +25,6 @@ from ._config import ModelConfig, SamplerConfig
 from ._spatial import SPATIAL_FUNCTIONS
 from ._variance import VARIANCE_FUNCTIONS
 
-
-@dataclass
-class ModelMetadata:
-    """Column counts, predictor names, and variance-model data for a fitted spGDMM."""
-
-    no_sites_train: int
-    no_cols: int
-    no_cols_env: int
-    no_cols_dist: int
-    predictors: list        # semantic predictor names
-    X_sigma: np.ndarray | None   # pairwise distance column for variance model
-    d_mean: float           # mean of training pw_distance (for X_sigma standardisation)
-    d_std: float            # std  of training pw_distance (for X_sigma standardisation)
-    poly_transform: np.ndarray | None  # R_inv from QR of Vandermonde; maps raw monomials to orthogonal basis
 
 
 class spGDMM(BaseEstimator):
@@ -123,7 +108,14 @@ class spGDMM(BaseEstimator):
         self.model = None
         self.idata: az.InferenceData | None = None
         self._config_dict = self._config.to_dict()
-        self.metadata: ModelMetadata | None = None
+        # Set by _generate_and_preprocess_model_data
+        self.X_transformed: np.ndarray | None = None
+        self.y_transformed: np.ndarray | None = None
+        # Variance model state (covariate-dependent only)
+        self._X_sigma: np.ndarray | None = None
+        self._d_mean: float = 0.0
+        self._d_std: float = 1.0
+        self._poly_transform: np.ndarray | None = None
         # Holdout mask for masked-holdout CV (White et al. 2024 strategy)
         self._holdout_mask: np.ndarray | None = None
 
@@ -143,8 +135,8 @@ class spGDMM(BaseEstimator):
         Preprocess model data before fitting.
 
         Delegates to ``self.preprocessor.fit()`` to compute spline meshes
-        (unless the preprocessor is already fitted), then populates
-        ``TrainingMetadata`` and ``ModelMetadata``.
+        (unless the preprocessor is already fitted), then builds the
+        pairwise feature matrix and variance model state.
 
         Parameters
         ----------
@@ -209,24 +201,13 @@ class spGDMM(BaseEstimator):
                 np.ones_like(d_z), d_z, d_z ** 2, d_z ** 3,
             ])
             Q, R = np.linalg.qr(V)
-            R_inv = np.linalg.inv(R)
-            X_sigma = Q
-            poly_transform = R_inv
+            self._X_sigma = Q
+            self._poly_transform = np.linalg.inv(R)
         else:
-            X_sigma = None
-            poly_transform = None
-
-        self.metadata = ModelMetadata(
-            no_sites_train=n_sites,
-            no_cols=X_GDM_fit.shape[1],
-            no_cols_env=n_cols_env,
-            no_cols_dist=n_cols_dist,
-            predictors=predictor_names_from_data if n_predictors > 0 else [],
-            X_sigma=X_sigma,
-            d_mean=d_mean,
-            d_std=d_std,
-            poly_transform=poly_transform,
-        )
+            self._X_sigma = None
+            self._poly_transform = None
+        self._d_mean = d_mean
+        self._d_std = d_std
 
         self.n_features_in_ = n_predictors
 
@@ -253,26 +234,29 @@ class spGDMM(BaseEstimator):
         **kwargs : keyword arguments
             Additional arguments (ignored; accepted for API compatibility).
         """
-        if self.metadata is None:
+        if self.X_transformed is None:
             self._generate_and_preprocess_model_data(X, log_y)
 
         X_values = self.X_transformed
         log_y_values = self.y_transformed
 
-        cfg = self.preprocessor._get_config()
-        n_spline_bases = cfg.deg + cfg.knots
+        prep = self.preprocessor
+        n_spline_bases = prep.n_spline_bases_
+        n_predictors = prep.n_predictors_
+        predictor_names = prep.predictor_names_
 
-        predictor_names = self.preprocessor.predictor_names_
         column_names = [
             f"{name}_s{j}" for name in predictor_names
             for j in range(1, n_spline_bases + 1)
         ] + [f"dist_s{j}" for j in range(1, n_spline_bases + 1)]
 
+        n_sites_train = prep.location_values_train_.shape[0]
+
         self.model_coords = {
             "obs_pair": np.arange(X_values.shape[0]),
             "predictor": column_names,
-            "site_train": np.arange(self.metadata.no_sites_train),
-            "feature": self.metadata.predictors,
+            "site_train": np.arange(n_sites_train),
+            "feature": predictor_names,
             "basis_function": np.arange(1, n_spline_bases + 1),
         }
 
@@ -284,7 +268,7 @@ class spGDMM(BaseEstimator):
 
             if self._config.alpha_importance:
                 J = n_spline_bases
-                F = len(self.metadata.predictors)
+                F = n_predictors
 
                 if F > 0:
                     beta = pm.Dirichlet(
@@ -293,8 +277,8 @@ class spGDMM(BaseEstimator):
                         dims=("feature", "basis_function")
                     )
 
-                    n_cols_env = self.metadata.no_cols_env
-                    n_cols_dist = self.metadata.no_cols_dist
+                    n_cols_env = n_predictors * n_spline_bases
+                    n_cols_dist = n_spline_bases
                     X_env = X_data[:, :n_cols_env]
                     X_reshaped = X_env.reshape((-1, F, J))
                     warped = (X_reshaped * beta[None, :, :]).sum(axis=2)
@@ -309,7 +293,10 @@ class spGDMM(BaseEstimator):
                 else:
                     mu = beta_0
             else:
-                beta = pm.LogNormal("beta", mu=0, sigma=10, shape=self.metadata.no_cols)
+                beta = pm.LogNormal(
+                    "beta", mu=0, sigma=10,
+                    shape=(n_predictors + 1) * n_spline_bases,
+                )
                 mu = beta_0 + pm.math.dot(X_data, beta)
 
             variance_fn = (
@@ -317,8 +304,8 @@ class spGDMM(BaseEstimator):
                 if callable(self._config.variance)
                 else VARIANCE_FUNCTIONS[self._config.variance]
             )
-            if self.metadata.X_sigma is not None:
-                X_sigma_data = pm.Data("X_sigma_data", self.metadata.X_sigma)
+            if self._X_sigma is not None:
+                X_sigma_data = pm.Data("X_sigma_data", self._X_sigma)
             else:
                 X_sigma_data = None
             sigma2 = variance_fn(mu, X_sigma_data)
@@ -334,8 +321,7 @@ class spGDMM(BaseEstimator):
 
                 # Use pm.Data so indices can be updated via pm.set_data during prediction
                 # when X_pred has a different number of sites than X_train.
-                n_train = self.metadata.no_sites_train
-                row_ind, col_ind = np.triu_indices(n_train, k=1)
+                row_ind, col_ind = np.triu_indices(n_sites_train, k=1)
                 row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
                 col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
 
@@ -401,14 +387,14 @@ class spGDMM(BaseEstimator):
 
         # For covariate_dependent variance: update X_sigma_data with pairwise distances
         # for the prediction sites so its shape matches X_data.
-        if self.metadata is not None and self.metadata.X_sigma is not None:
+        if self._X_sigma is not None:
             pred_locations = (
                 X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
             )
             pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
             dist_mesh = self.preprocessor.dist_mesh_
             pw_dist_pred = np.clip(pw_dist_pred, dist_mesh[0], dist_mesh[-1])
-            d_z_pred = (pw_dist_pred - self.metadata.d_mean) / self.metadata.d_std
+            d_z_pred = (pw_dist_pred - self._d_mean) / self._d_std
             V_pred = np.column_stack([
                 np.ones_like(d_z_pred),
                 d_z_pred,
@@ -416,7 +402,7 @@ class spGDMM(BaseEstimator):
                 d_z_pred ** 3,
             ])
             # Apply the same QR-based orthogonal transform used at training time.
-            set_data_dict["X_sigma_data"] = V_pred @ self.metadata.poly_transform
+            set_data_dict["X_sigma_data"] = V_pred @ self._poly_transform
 
         # For spatial models: recompute pair indices for the prediction sites so the
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
@@ -440,7 +426,7 @@ class spGDMM(BaseEstimator):
         serialized and reloaded for prediction without refitting.
         """
         ds = self.preprocessor.to_xarray()
-        idata.attrs["predictor_names"] = json.dumps(self.metadata.predictors)
+        idata.attrs["predictor_names"] = json.dumps(self.preprocessor.predictor_names_)
         if hasattr(idata, "constant_data"):
             # pm.sample already created constant_data for pm.Data variables — merge in place.
             merged = idata.constant_data.merge(ds)
@@ -495,7 +481,7 @@ class spGDMM(BaseEstimator):
         p = X_GDM.shape[1]
 
         # Pair indices (for spatial init), filtered to observed pairs if holdout
-        n_train = self.metadata.no_sites_train
+        n_train = self.preprocessor.location_values_train_.shape[0]
         row_ind, col_ind = np.triu_indices(n_train, k=1)
         if self._holdout_mask is not None:
             row_ind = row_ind[~self._holdout_mask]
@@ -586,8 +572,8 @@ class spGDMM(BaseEstimator):
 
             beta_sigma_init = None
 
-            if variance_type == "covariate_dependent" and self.metadata.X_sigma is not None:
-                X_sig = self.metadata.X_sigma
+            if variance_type == "covariate_dependent" and self._X_sigma is not None:
+                X_sig = self._X_sigma
                 if self._holdout_mask is not None:
                     X_sig = X_sig[~self._holdout_mask]
                 res_sigma = minimize(

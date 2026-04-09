@@ -432,7 +432,7 @@ def gdm_transform(model, newdata: pd.DataFrame) -> pd.DataFrame:
     prep = spgdmm_model.preprocessor
     n_predictors = prep.n_predictors_
     n_basis = prep.n_spline_bases_
-    predictor_names = spgdmm_model.metadata.predictors or [f"pred_{i}" for i in range(n_predictors)]
+    predictor_names = spgdmm_model.preprocessor.predictor_names_ or [f"pred_{i}" for i in range(n_predictors)]
 
     columns = [
         f"{pred}_{j}"
@@ -465,7 +465,7 @@ def ispline_extract(model) -> dict:
 
     predictor_mesh = spgdmm_model.preprocessor.predictor_mesh_
     dist_mesh = spgdmm_model.preprocessor.dist_mesh_
-    predictor_names = spgdmm_model.metadata.predictors
+    predictor_names = spgdmm_model.preprocessor.predictor_names_
 
     result = {}
 

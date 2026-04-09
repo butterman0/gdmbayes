@@ -337,12 +337,9 @@ class TestDataPreprocessing:
         model = spGDMM()
         model._generate_and_preprocess_model_data(X, y)
 
-        # Check metadata is created
-        assert model.metadata is not None
-
         # Check transformed data exists
-        assert hasattr(model, "X_transformed")
-        assert hasattr(model, "y_transformed")
+        assert model.X_transformed is not None
+        assert model.y_transformed is not None
 
     def test_build_model(self, sample_data):
         """Test model building."""
