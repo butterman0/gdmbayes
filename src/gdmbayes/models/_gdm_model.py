@@ -250,7 +250,7 @@ class GDMModel(BaseEstimator):
 
         # Fit the underlying spGDMM model
         self._spgdmm.fit(X, y, **kwargs)
-        idata = self._spgdmm.idata
+        idata = self._spgdmm.idata_
 
         # Posterior mean predictions (on log scale)
         predicted_log = self._spgdmm.predict(X)
@@ -469,16 +469,16 @@ def ispline_extract(model) -> dict:
 
     result = {}
 
-    if "beta" in spgdmm_model.idata.posterior:
-        beta_median = spgdmm_model.idata.posterior.beta.median(dim=["chain", "draw"])
+    if "beta" in spgdmm_model.idata_.posterior:
+        beta_median = spgdmm_model.idata_.posterior.beta.median(dim=["chain", "draw"])
         for i, pred in enumerate(predictor_names):
             result[pred] = {
                 "x": predictor_mesh[i],
                 "y": beta_median.sel(feature=pred).values,
             }
 
-    if "beta_dist" in spgdmm_model.idata.posterior:
-        beta_dist_median = spgdmm_model.idata.posterior.beta_dist.median(dim=["chain", "draw"])
+    if "beta_dist" in spgdmm_model.idata_.posterior:
+        beta_dist_median = spgdmm_model.idata_.posterior.beta_dist.median(dim=["chain", "draw"])
         result["distance"] = {
             "x": dist_mesh,
             "y": beta_dist_median.values,
@@ -509,7 +509,7 @@ def rgb_biological_space(model, X_pred: pd.DataFrame, metric: str = "median") ->
     """
     from gdmbayes.plotting._plots import rgb_biological_space as _rgb
     spgdmm_model = model._spgdmm if isinstance(model, GDMModel) else model
-    return _rgb(spgdmm_model.idata, X_pred, metric=metric)
+    return _rgb(spgdmm_model.idata_, X_pred, metric=metric)
 
 
 __all__ = ["GDMModel", "GDMResult", "gdm", "gdm_transform", "ispline_extract", "rgb_biological_space"]

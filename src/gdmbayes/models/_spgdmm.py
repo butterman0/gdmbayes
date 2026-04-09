@@ -104,15 +104,15 @@ class spGDMM(BaseEstimator):
 
         self.sampler_config = sampler_config
 
-        self.model = None
-        self.idata: az.InferenceData | None = None
+        self.model_ = None
+        self.idata_: az.InferenceData | None = None
 
         # Raw inputs (set by _generate_and_preprocess_model_data)
-        self.X: pd.DataFrame | None = None  # site-level input
-        self.y: np.ndarray | None = None    # raw pairwise dissimilarities
+        self.X_: pd.DataFrame | None = None  # site-level input
+        self.y_: np.ndarray | None = None    # raw pairwise dissimilarities
         # Transformed for model (set by _generate_and_preprocess_model_data)
-        self.X_GDM: np.ndarray | None = None  # pairwise GDM feature matrix
-        self.log_y: np.ndarray | None = None        # log-transformed dissimilarities
+        self.X_GDM_: np.ndarray | None = None  # pairwise GDM feature matrix
+        self.log_y_: np.ndarray | None = None        # log-transformed dissimilarities
         # Variance model state (covariate-dependent only)
         self._X_sigma: np.ndarray | None = None
         self._poly_alpha: np.ndarray | None = None
@@ -122,7 +122,7 @@ class spGDMM(BaseEstimator):
 
     def __sklearn_is_fitted__(self) -> bool:
         """Return True only after a successful fit (idata with posterior exists)."""
-        return self.idata is not None and "posterior" in self.idata
+        return self.idata_ is not None and "posterior" in self.idata_
 
     def _more_tags(self):
         return {"no_validation": True, "non_deterministic": True}
@@ -167,9 +167,9 @@ class spGDMM(BaseEstimator):
 
         y_array = np.asarray(y, dtype=float)
 
-        self.X = X
-        self.y = y_array
-        self.log_y = np.log(np.maximum(y_array, np.finfo(float).eps))
+        self.X_ = X
+        self.y_ = y_array
+        self.log_y_ = np.log(np.maximum(y_array, np.finfo(float).eps))
         if hasattr(X, "columns"):
             self.feature_names_in_ = np.array(X.columns)
 
@@ -181,7 +181,7 @@ class spGDMM(BaseEstimator):
         prep = self.preprocessor
 
         # Delegate pairwise I-spline diffs + distance splines to preprocessor.
-        self.X_GDM = prep.transform(X)
+        self.X_GDM_ = prep.transform(X)
         self.n_features_in_ = prep.n_predictors_
 
         # Build orthogonal polynomial basis for covariate-dependent variance.
@@ -237,11 +237,11 @@ class spGDMM(BaseEstimator):
                 raise ValueError("y is required when X is provided.")
             y_array = np.asarray(y, dtype=float)
             self._generate_and_preprocess_model_data(X, y_array, holdout_mask=holdout_mask)
-        elif self.X_GDM is None:
+        elif self.X_GDM_ is None:
             raise ValueError("No preprocessed data. Pass X and y, or call fit().")
 
-        X_values = self.X_GDM
-        log_y_values = self.log_y
+        X_values = self.X_GDM_
+        log_y_values = self.log_y_
 
         prep = self.preprocessor
         n_spline_bases = prep.n_spline_bases_
@@ -370,7 +370,7 @@ class spGDMM(BaseEstimator):
                     observed=log_y_data,
                 )
 
-        self.model = model
+        self.model_ = model
 
     def _data_setter(
         self,
@@ -382,7 +382,7 @@ class spGDMM(BaseEstimator):
         For spatial models, also updates ``row_indices`` and ``col_indices`` to
         match the prediction sites so the spatial effect term has the correct shape.
         """
-        if self.idata is None or "posterior" not in self.idata:
+        if self.idata_ is None or "posterior" not in self.idata_:
             raise ValueError("Model must be fitted before predicting.")
         X_transformed = self.preprocessor.transform(X)
         n_pred_pairs = X_transformed.shape[0]
@@ -412,7 +412,7 @@ class spGDMM(BaseEstimator):
             set_data_dict["row_indices"] = pred_row_ind.astype(np.int32)
             set_data_dict["col_indices"] = pred_col_ind.astype(np.int32)
 
-        with self.model:
+        with self.model_:
             pm.set_data(
                 set_data_dict,
                 coords={"obs_pair": np.arange(n_pred_pairs)},
@@ -472,11 +472,11 @@ class spGDMM(BaseEstimator):
         # When using holdout CV, compute initvals from observed pairs only
         if self._holdout_mask is not None:
             obs = ~self._holdout_mask
-            X_GDM = self.X_GDM[obs]
-            log_y = self.log_y[obs]
+            X_GDM = self.X_GDM_[obs]
+            log_y = self.log_y_[obs]
         else:
-            X_GDM = self.X_GDM
-            log_y = self.log_y
+            X_GDM = self.X_GDM_
+            log_y = self.log_y_
         p = X_GDM.shape[1]
 
         # Pair indices (for spatial init), filtered to observed pairs if holdout
@@ -545,9 +545,9 @@ class spGDMM(BaseEstimator):
                 initvals["psi"] = res_sp.x[p + 1:]
 
         # Stage 2: variance model (beta_sigma) via profile NLL.
-        var_names = [v.name for v in self.model.free_RVs]
+        var_names = [v.name for v in self.model_.free_RVs]
         if "beta_sigma_raw" in var_names and not self._config.alpha_importance:
-            beta_sigma_raw_var = self.model["beta_sigma_raw"]
+            beta_sigma_raw_var = self.model_["beta_sigma_raw"]
             n_sigma = beta_sigma_raw_var.type.shape[0] or 4
 
             mu_fixed = initvals["beta_0"] + X_GDM @ initvals["beta"]
@@ -603,7 +603,7 @@ class spGDMM(BaseEstimator):
 
         elif "beta_sigma_raw" in var_names:
             # alpha_importance=True or custom variance: use zeros.
-            beta_sigma_raw_var = self.model["beta_sigma_raw"]
+            beta_sigma_raw_var = self.model_["beta_sigma_raw"]
             n_sigma = beta_sigma_raw_var.type.shape[0] or 4
             initvals["beta_sigma_raw"] = np.zeros(n_sigma)
 
@@ -623,11 +623,11 @@ class spGDMM(BaseEstimator):
         ``model.set_initval()`` so that both PyMC's internal sampler and
         external samplers (nutpie) pick them up during model compilation.
         """
-        if self.model is None:
+        if self.model_ is None:
             raise RuntimeError(
                 "The model hasn't been built yet, call .build_model() first or .fit() instead."
             )
-        with self.model:
+        with self.model_:
             if sampler_args is None:
                 sampler_args = dict(self.sampler_config)
             sampler_args.update(kwargs)
@@ -635,9 +635,9 @@ class spGDMM(BaseEstimator):
             # Compute initial values (constrained space) and inject into model
             initvals = self._compute_initvals()
 
-            for rv in self.model.free_RVs:
+            for rv in self.model_.free_RVs:
                 if rv.name in initvals:
-                    self.model.set_initval(rv, initvals[rv.name])
+                    self.model_.set_initval(rv, initvals[rv.name])
 
             if sampler_args.get("nuts_sampler", "pymc") != "nutpie":
                 sampler_args["initvals"] = initvals
@@ -656,7 +656,7 @@ class spGDMM(BaseEstimator):
     def _set_idata_attrs(self, idata: az.InferenceData | None = None) -> az.InferenceData:
         """Set metadata attributes on an InferenceData object."""
         if idata is None:
-            idata = self.idata
+            idata = self.idata_
         if idata is None:
             raise RuntimeError("No idata provided to set attrs on.")
         idata.attrs["id"] = self.id
@@ -701,7 +701,7 @@ class spGDMM(BaseEstimator):
         Returns
         -------
         self : spGDMM
-            The fitted estimator. Access inference data via ``self.idata``.
+            The fitted estimator. Access inference data via ``self.idata_``.
         """
         if y is None:
             raise ValueError(
@@ -717,7 +717,7 @@ class spGDMM(BaseEstimator):
 
         self.build_model(X, y_series.values, holdout_mask=holdout_mask)
 
-        self.idata = self._sample_model(sampler_args=sampler_args)
+        self.idata_ = self._sample_model(sampler_args=sampler_args)
 
         # Save only site-level X in fit_data. Pair-level y is recoverable from
         # idata.constant_data["log_y_data"]. Concatenating X (n_sites rows) with
@@ -729,7 +729,7 @@ class spGDMM(BaseEstimator):
                 category=UserWarning,
                 message="The group fit_data is not defined in the InferenceData scheme",
             )
-            self.idata.add_groups(fit_data=X.to_xarray())
+            self.idata_.add_groups(fit_data=X.to_xarray())
 
         return self
 
@@ -741,8 +741,8 @@ class spGDMM(BaseEstimator):
         fname : str
             Path to the output file.
         """
-        if self.idata is not None and "posterior" in self.idata:
-            self.idata.to_netcdf(str(fname))
+        if self.idata_ is not None and "posterior" in self.idata_:
+            self.idata_.to_netcdf(str(fname))
         else:
             raise RuntimeError("The model hasn't been fit yet, call .fit() first")
 
@@ -773,7 +773,7 @@ class spGDMM(BaseEstimator):
             model_config=model_config,
             sampler_config=sampler_config,
         )
-        model.idata = idata
+        model.idata_ = idata
 
         # Populate metadata from stored training data using the already-fitted preprocessor.
         # fit_data contains site-level X; pair-level y is recovered from constant_data.
@@ -877,12 +877,12 @@ class spGDMM(BaseEstimator):
     ):
         """Sample from the model's posterior predictive distribution."""
         self._data_setter(X_pred)
-        with self.model:
+        with self.model_:
             post_pred = pm.sample_posterior_predictive(
-                self.idata, predictions=predictions, **kwargs
+                self.idata_, predictions=predictions, **kwargs
             )
             if extend_idata:
-                self.idata.extend(post_pred, join="right")
+                self.idata_.extend(post_pred, join="right")
         group_name = "predictions" if predictions else "posterior_predictive"
         return az.extract(post_pred, group_name, combined=combined)
 
@@ -901,18 +901,18 @@ class spGDMM(BaseEstimator):
         if samples is None:
             samples = self.sampler_config.get("draws", 500)
 
-        if self.model is None:
+        if self.model_ is None:
             self.build_model(X_pred, y_pred)
         else:
             self._data_setter(X_pred, y_pred)
-        with self.model:
+        with self.model_:
             prior_pred: az.InferenceData = pm.sample_prior_predictive(samples, **kwargs)
             self._set_idata_attrs(prior_pred)
             if extend_idata:
-                if self.idata is not None:
-                    self.idata.extend(prior_pred, join="right")
+                if self.idata_ is not None:
+                    self.idata_.extend(prior_pred, join="right")
                 else:
-                    self.idata = prior_pred
+                    self.idata_ = prior_pred
         return az.extract(prior_pred, "prior_predictive", combined=combined)
 
     def extract_holdout_predictions(self) -> dict:
@@ -928,10 +928,10 @@ class spGDMM(BaseEstimator):
         """
         if self._holdout_mask is None:
             raise RuntimeError("No holdout mask was set during fit().")
-        if self.idata is None or "posterior" not in self.idata:
+        if self.idata_ is None or "posterior" not in self.idata_:
             raise RuntimeError("Model must be fitted before extracting predictions.")
 
-        log_y_hold = self.idata.posterior["log_y_holdout"]
+        log_y_hold = self.idata_.posterior["log_y_holdout"]
         # (chain, draw, n_hold) → (n_hold, n_samples)
         samples = log_y_hold.stack(sample=("chain", "draw")).values
         y_samples = np.minimum(1.0, np.exp(samples))

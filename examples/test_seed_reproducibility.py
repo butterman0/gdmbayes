@@ -73,7 +73,7 @@ def fit_model(seed):
     )
     model.fit(X, y)
     # Return posterior mean of beta (I-spline coefficients); fit() returns self, idata in model.idata
-    return float(model.idata.posterior["beta"].values.mean())
+    return float(model.idata_.posterior["beta"].values.mean())
 
 print("  Fitting seed=42  (run 1) ...")
 mean_42a = fit_model(42)

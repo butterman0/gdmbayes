@@ -265,7 +265,7 @@ class TestSpGDMM:
         model._generate_and_preprocess_model_data(X, y)
         # Build a minimal stub idata with no posterior so we can call _set_idata_attrs
         stub = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
-        model.idata = stub  # needed so _save_input_params doesn't raise
+        model.idata_ = stub  # needed so _save_input_params doesn't raise
         result = model._set_idata_attrs(stub)
         assert "id" in result.attrs
         assert "model_type" in result.attrs
@@ -338,8 +338,8 @@ class TestDataPreprocessing:
         model._generate_and_preprocess_model_data(X, y)
 
         # Check transformed data exists
-        assert model.X_GDM is not None
-        assert model.log_y is not None
+        assert model.X_GDM_ is not None
+        assert model.log_y_ is not None
 
     def test_build_model(self, sample_data):
         """Test model building."""
@@ -348,11 +348,11 @@ class TestDataPreprocessing:
         model._generate_and_preprocess_model_data(X, y)
         model.build_model()
 
-        assert model.model is not None
+        assert model.model_ is not None
         # Check that key random variables exist in the model
-        assert "beta_0" in model.model.named_vars
+        assert "beta_0" in model.model_.named_vars
         # With alpha_importance=True, the model has beta, alpha, beta_dist for distance splines
-        assert "beta" in model.model.named_vars
+        assert "beta" in model.model_.named_vars
 
 
 class TestExtrapolation:
@@ -504,7 +504,7 @@ class TestSpGDMMSklearnInterface:
 
     def test_clone_produces_unfitted_model(self, preprocessed_model):
         cloned = clone(preprocessed_model)
-        assert cloned.idata is None
+        assert cloned.idata_ is None
         assert not hasattr(cloned, "n_features_in_")
 
     def test_not_fitted_raises_check_is_fitted(self, model):
@@ -513,7 +513,7 @@ class TestSpGDMMSklearnInterface:
 
     def test_fitted_after_preprocess(self, preprocessed_model):
         """check_is_fitted should NOT raise after we inject a stub posterior."""
-        preprocessed_model.idata = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
+        preprocessed_model.idata_ = az.from_dict({"posterior": {"dummy": np.ones((1, 1))}})
         # Should not raise
         check_is_fitted(preprocessed_model)
 
@@ -605,8 +605,8 @@ class TestHoldoutCV:
         )
         model.build_model(X, y, holdout_mask=mask)
 
-        assert "log_y_holdout" in model.model.named_vars
-        free_rv_names = [v.name for v in model.model.free_RVs]
+        assert "log_y_holdout" in model.model_.named_vars
+        free_rv_names = [v.name for v in model.model_.free_RVs]
         assert "log_y_holdout" in free_rv_names
 
     def test_build_model_no_holdout_unchanged(self, sample_data):
@@ -617,7 +617,7 @@ class TestHoldoutCV:
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
         )
         model.build_model(X, y)
-        assert "log_y_holdout" not in model.model.named_vars
+        assert "log_y_holdout" not in model.model_.named_vars
 
     def test_build_model_holdout_covariate_dependent(self, sample_data):
         """Holdout works with covariate_dependent variance (vector sigma2)."""
@@ -632,7 +632,7 @@ class TestHoldoutCV:
         )
         model.build_model(X, y, holdout_mask=mask)
 
-        assert "log_y_holdout" in model.model.named_vars
+        assert "log_y_holdout" in model.model_.named_vars
 
     def test_fit_with_holdout_mask(self, sample_data):
         """Smoke test: fit with holdout_mask completes and extract_holdout_predictions works."""
@@ -735,7 +735,7 @@ class TestSpGDMMSaveLoad:
     def test_load_idata_has_posterior(self, fitted_artifacts):
         _, save_path, _, _ = fitted_artifacts
         loaded = spGDMM.load(str(save_path))
-        assert "posterior" in loaded.idata
+        assert "posterior" in loaded.idata_
 
 
 class TestGDM:

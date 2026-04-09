@@ -69,7 +69,7 @@ model = spGDMM(
 )
 
 model.fit(X, y, random_seed=42)
-idata = model.idata
+idata = model.idata_
 
 print(f"Posterior samples: {idata.posterior.dims}")
 print(f"Variables: {list(idata.posterior.data_vars.keys())}")

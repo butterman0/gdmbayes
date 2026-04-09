@@ -38,7 +38,7 @@ def plot_isplines(model: "spGDMM", features=None, hdi_prob=0.9, figsize=(6.5, 4)
     -------
     None (displays plots inline)
     """
-    idata = model.idata
+    idata = model.idata_
     prep = model.preprocessor
 
     beta = idata.posterior.beta  # (chain, draw, feature, basis_function)
