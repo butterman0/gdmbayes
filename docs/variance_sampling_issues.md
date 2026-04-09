@@ -92,7 +92,7 @@ In `_generate_and_preprocess_model_data()`:
 2. Clip to the distance mesh range
 3. Standardize: `d_z = (pw_dist - mean) / std`
 4. Build 4-column matrix: `X_sigma = [ones, d_z, d_z^2, d_z^3]`
-5. Store `d_mean` and `d_std` in `ModelMetadata` for consistent standardization at prediction time
+5. Store `d_mean` and `d_std` on the model (`self._d_mean`, `self._d_std`) for consistent standardization at prediction time
 
 **Critical detail:** `X_sigma` is only created when `n_predictors > 0`. If there are no environmental predictors, `X_sigma = None` and all variance models silently fall back to `InverseGamma(1, 1)`.
 

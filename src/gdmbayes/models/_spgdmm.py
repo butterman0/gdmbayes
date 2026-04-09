@@ -161,8 +161,6 @@ class spGDMM(BaseEstimator):
         self.X = X
         self.y = log_y
 
-        n_sites = X.shape[0]
-
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
         try:
             check_is_fitted(self.preprocessor)
@@ -170,33 +168,22 @@ class spGDMM(BaseEstimator):
             self.preprocessor.fit(X)
         prep = self.preprocessor
 
-        n_spline_bases = prep.n_spline_bases_
-        n_predictors = prep.n_predictors_
-        predictor_names_from_data = prep.predictor_names_
-
         # Delegate pairwise I-spline diffs + distance splines to preprocessor.
-        X_GDM_fit = prep.transform(X)
+        self.X_transformed = prep.transform(X)
+        self.y_transformed = log_y
+        self.n_features_in_ = prep.n_predictors_
 
-        n_cols_env = n_predictors * n_spline_bases
-        n_cols_dist = n_spline_bases
-
-        # Recompute clipped pairwise distance for the QR polynomial basis (X_sigma).
+        # Build QR-orthogonalised polynomial basis for covariate-dependent variance.
+        # Raw monomials [1, d_z, d_z², d_z³] have wildly different column
+        # variances, creating an anisotropic posterior that hampers NUTS.
+        # QR-orthogonalizing yields equal-norm, zero-correlation columns.
         pw_distance = prep.pw_distance(prep.location_values_train_)
         pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
+        self._d_mean = float(pw_dist_fit.mean())
+        self._d_std = float(pw_dist_fit.std()) + float(np.finfo(float).eps)
 
-        # Standardise pairwise distances before polynomial expansion to reduce
-        # collinearity in X_sigma (matching the intent of R's poly()).
-        d_mean = float(pw_dist_fit.mean())
-        d_std = float(pw_dist_fit.std()) + float(np.finfo(float).eps)
-        d_z = (pw_dist_fit - d_mean) / d_std
-
-        # Build orthogonal polynomial basis for X_sigma via QR decomposition.
-        # Raw monomials [1, d_z, d_z², d_z³] have wildly different column
-        # variances (d_z³ can be ~4x the scale of d_z), creating an anisotropic
-        # posterior that hampers NUTS.  QR-orthogonalizing yields columns with
-        # equal norm and zero correlation, making the beta_sigma parameter space
-        # isotropic without changing the model's expressive power.
-        if n_predictors > 0:
+        if prep.n_predictors_ > 0:
+            d_z = (pw_dist_fit - self._d_mean) / self._d_std
             V = np.column_stack([
                 np.ones_like(d_z), d_z, d_z ** 2, d_z ** 3,
             ])
@@ -206,13 +193,6 @@ class spGDMM(BaseEstimator):
         else:
             self._X_sigma = None
             self._poly_transform = None
-        self._d_mean = d_mean
-        self._d_std = d_std
-
-        self.n_features_in_ = n_predictors
-
-        self.X_transformed = X_GDM_fit
-        self.y_transformed = log_y
 
     def build_model(
         self,

@@ -64,7 +64,7 @@ GDMPreprocessor (preprocessing/_preprocessor.py)  ← sklearn transformer
 
 - **nutpie initvals**: nutpie 0.16.x ignores `initvals` passed via `pm.sample()`. The workaround is `model.set_initval(rv, value)` which modifies PyMC's `rvs_to_initial_values` dict before nutpie compiles the model. See `_apply_initvals()`.
 - **MCMC initialisation**: `_compute_initvals()` runs a multi-stage BFGS matching White et al.: (1) squared-error for beta_0/beta, (1b) joint re-optimisation of [beta_0, log_beta, psi] including the spatial effect term, (2) profile Gaussian NLL for beta_sigma given fixed mu+spatial. Psi init is critical — without it NUTS starts with zero spatial contribution and struggles to discover GP structure.
-- **QR poly_transform**: `ModelMetadata.poly_transform` (R⁻¹ from QR decomposition) converts raw monomials to an orthogonal polynomial basis. Both `_generate_and_preprocess_model_data()` (training) and `_data_setter()` (prediction) must apply the same transform — if one changes, update the other.
+- **QR poly_transform**: `self._poly_transform` (R⁻¹ from QR decomposition) converts raw monomials to an orthogonal polynomial basis. Both `_generate_and_preprocess_model_data()` (training) and `_data_setter()` (prediction) must apply the same transform — if one changes, update the other.
 - **Masked-holdout CV**: see [docs/design_decisions.md](docs/design_decisions.md) for pm.Censored/pm.Normal architecture and the `holdout_pairs` / `extract_holdout_predictions` utilities.
 - `ruff` line length is 100; rule E501 (line too long) is ignored.
 - Tests live inside the package at `src/gdmbayes/tests/`.
