@@ -21,6 +21,6 @@
 
 1. Raw site coordinates + environmental predictors + condensed pairwise dissimilarities `y`
 2. **Frequentist path**: `GDM.fit(X, y)` → `GDMPreprocessor.fit(X)` computes I-spline meshes → `GDMPreprocessor.transform(X)` → NNLS → `coef_`, `predictor_importance_`, `explained_`
-3. **Bayesian path**: `spGDMM.fit(X, y)` → `GDMPreprocessor.fit()` computes I-spline meshes and bases → PyMC model → MCMC → `InferenceData`
+3. **Bayesian path**: `spGDMM.fit(X, y)` → `build_model(X, y)` → `GDMPreprocessor.fit()` computes I-spline meshes and bases → PyMC model → MCMC → `InferenceData`
 4. `GDMModel.fit(X, y)` wraps spGDMM and returns `GDMResult`
 5. Prediction: `GDM.predict(X)` or `spGDMM._data_setter()` delegates to `GDMPreprocessor.transform()` using the stored meshes

@@ -338,15 +338,15 @@ class TestDataPreprocessing:
         model._generate_and_preprocess_model_data(X, y)
 
         # Check transformed data exists
-        assert model.X_transformed is not None
-        assert model.y_transformed is not None
+        assert model.X_GDM is not None
+        assert model.log_y is not None
 
     def test_build_model(self, sample_data):
         """Test model building."""
         X, y = sample_data
         model = spGDMM()
         model._generate_and_preprocess_model_data(X, y)
-        model.build_model(model.X_transformed, model.y_transformed)
+        model.build_model()
 
         assert model.model is not None
         # Check that key random variables exist in the model
@@ -598,8 +598,7 @@ class TestHoldoutCV:
             preprocessor=PreprocessorConfig(deg=3, knots=2),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
         )
-        model._generate_and_preprocess_model_data(X, y, holdout_mask=mask)
-        model.build_model(model.X, model.y)
+        model.build_model(X, y, holdout_mask=mask)
 
         assert "log_y_holdout" in model.model.named_vars
         free_rv_names = [v.name for v in model.model.free_RVs]
@@ -612,8 +611,7 @@ class TestHoldoutCV:
             preprocessor=PreprocessorConfig(deg=3, knots=2),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
         )
-        model._generate_and_preprocess_model_data(X, y)
-        model.build_model(model.X, model.y)
+        model.build_model(X, y)
         assert "log_y_holdout" not in model.model.named_vars
 
     def test_build_model_holdout_covariate_dependent(self, sample_data):
@@ -627,8 +625,7 @@ class TestHoldoutCV:
             preprocessor=PreprocessorConfig(deg=3, knots=2),
             model_config=ModelConfig(variance="covariate_dependent", spatial_effect="none"),
         )
-        model._generate_and_preprocess_model_data(X, y, holdout_mask=mask)
-        model.build_model(model.X, model.y)
+        model.build_model(X, y, holdout_mask=mask)
 
         assert "log_y_holdout" in model.model.named_vars
 

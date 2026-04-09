@@ -108,9 +108,12 @@ class spGDMM(BaseEstimator):
         self.model = None
         self.idata: az.InferenceData | None = None
         self._config_dict = self._config.to_dict()
-        # Set by _generate_and_preprocess_model_data
-        self.X_transformed: np.ndarray | None = None
-        self.y_transformed: np.ndarray | None = None
+        # Raw inputs (set by _generate_and_preprocess_model_data)
+        self.X: pd.DataFrame | None = None  # site-level input
+        self.y: np.ndarray | None = None    # raw pairwise dissimilarities
+        # Transformed for model (set by _generate_and_preprocess_model_data)
+        self.X_GDM: np.ndarray | None = None  # pairwise GDM feature matrix
+        self.log_y: np.ndarray | None = None        # log-transformed dissimilarities
         # Variance model state (covariate-dependent only)
         self._X_sigma: np.ndarray | None = None
         self._d_mean: float = 0.0
@@ -156,10 +159,10 @@ class spGDMM(BaseEstimator):
             X = pd.DataFrame(X)
 
         y_array = np.asarray(y, dtype=float)
-        log_y = np.log(np.maximum(y_array, np.finfo(float).eps))
 
         self.X = X
-        self.y = log_y
+        self.y = y_array
+        self.log_y = np.log(np.maximum(y_array, np.finfo(float).eps))
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
         try:
@@ -169,8 +172,7 @@ class spGDMM(BaseEstimator):
         prep = self.preprocessor
 
         # Delegate pairwise I-spline diffs + distance splines to preprocessor.
-        self.X_transformed = prep.transform(X)
-        self.y_transformed = log_y
+        self.X_GDM = prep.transform(X)
         self.n_features_in_ = prep.n_predictors_
 
         # Build QR-orthogonalised polynomial basis for covariate-dependent variance.
@@ -196,29 +198,34 @@ class spGDMM(BaseEstimator):
 
     def build_model(
         self,
-        X: pd.DataFrame | np.ndarray,
-        log_y: pd.Series | np.ndarray,
-        **kwargs,
+        X: "pd.DataFrame | None" = None,
+        y: "pd.Series | np.ndarray | None" = None,
+        holdout_mask: "np.ndarray | None" = None,
     ) -> None:
-        """
-        Build the PyMC model.
+        """Preprocess data (if provided) and build the PyMC model.
 
         Parameters
         ----------
-        X : pd.DataFrame or np.ndarray
-            The input data (raw site-level features). If metadata is already populated
-            (e.g. after calling _generate_and_preprocess_model_data), the pre-computed
-            X_transformed / y_transformed are used instead.
-        log_y : pd.Series or np.ndarray
-            The response variable (raw dissimilarities or log-dissimilarities).
-        **kwargs : keyword arguments
-            Additional arguments (ignored; accepted for API compatibility).
+        X : pd.DataFrame, optional
+            Site-level data. If provided together with ``y``, preprocessing
+            is run first via ``_generate_and_preprocess_model_data``.
+            If omitted, assumes preprocessing was already done (e.g. on
+            the load path).
+        y : array-like, optional
+            Pairwise dissimilarities. Required when ``X`` is provided.
+        holdout_mask : np.ndarray of bool, optional
+            Boolean mask for masked-holdout CV (True = held-out pair).
         """
-        if self.X_transformed is None:
-            self._generate_and_preprocess_model_data(X, log_y)
+        if X is not None:
+            if y is None:
+                raise ValueError("y is required when X is provided.")
+            y_array = np.asarray(y, dtype=float)
+            self._generate_and_preprocess_model_data(X, y_array, holdout_mask=holdout_mask)
+        elif self.X_GDM is None:
+            raise ValueError("No preprocessed data. Pass X and y, or call fit().")
 
-        X_values = self.X_transformed
-        log_y_values = self.y_transformed
+        X_values = self.X_GDM
+        log_y_values = self.log_y
 
         prep = self.preprocessor
         n_spline_bases = prep.n_spline_bases_
@@ -453,11 +460,11 @@ class spGDMM(BaseEstimator):
         # When using holdout CV, compute initvals from observed pairs only
         if self._holdout_mask is not None:
             obs = ~self._holdout_mask
-            X_GDM = self.X_transformed[obs]
-            log_y = self.y_transformed[obs]
+            X_GDM = self.X_GDM[obs]
+            log_y = self.log_y[obs]
         else:
-            X_GDM = self.X_transformed
-            log_y = self.y_transformed
+            X_GDM = self.X_GDM
+            log_y = self.log_y
         p = X_GDM.shape[1]
 
         # Pair indices (for spatial init), filtered to observed pairs if holdout
@@ -697,8 +704,7 @@ class spGDMM(BaseEstimator):
             y = np.zeros(X.shape[0])
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
-        self._generate_and_preprocess_model_data(X, y_series.values, holdout_mask=holdout_mask)
-        self.build_model(self.X, self.y)
+        self.build_model(X, y_series.values, holdout_mask=holdout_mask)
 
         self.idata = self._sample_model()
 
@@ -770,8 +776,7 @@ class spGDMM(BaseEstimator):
         # y is stored as log_y_data (log-transformed) in constant_data; exp to recover.
         log_y_stored = idata.constant_data["log_y_data"].values
         y_raw = np.exp(log_y_stored)
-        model._generate_and_preprocess_model_data(X, y_raw)
-        model.build_model(model.X, model.y)
+        model.build_model(X, y_raw)
 
         if model.id != idata.attrs["id"]:
             raise ValueError(
