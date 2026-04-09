@@ -23,48 +23,7 @@ from ..preprocessing._config import PreprocessorConfig
 from ..preprocessing._preprocessor import GDMPreprocessor
 from ._config import ModelConfig, SamplerConfig
 from ._spatial import SPATIAL_FUNCTIONS
-from ._variance import VARIANCE_FUNCTIONS
-
-
-def _poly_fit(x: np.ndarray, degree: int = 3):
-    """Fit orthogonal polynomials, replicating R's ``poly(x, degree)``.
-
-    Returns ``(Z, alpha, norm2)`` where *Z* is an ``(n, degree)`` matrix of
-    orthonormal columns (each with unit L2 norm), *alpha* and *norm2* are the
-    three-term recurrence coefficients needed by :func:`_poly_predict`.
-    """
-    x = np.asarray(x, dtype=float)
-    xbar = float(x.mean())
-    xc = x - xbar
-    # Vandermonde including degree-0 constant column
-    V = np.column_stack([xc ** k for k in range(degree + 1)])
-    Q, R = np.linalg.qr(V)
-    # R's poly() uses Q * diag(R), not plain Q, before renormalizing
-    Z = Q * np.diag(R)[None, :]
-    norm2 = (Z ** 2).sum(axis=0)  # length degree+1
-    alpha = ((xc[:, None] * Z ** 2).sum(axis=0) / norm2 + xbar)[:degree]
-    norm2 = np.concatenate([[1.0], norm2])  # length degree+2
-    Z = Z / np.sqrt(norm2[1:])  # unit L2 norm columns
-    Z = Z[:, 1:]  # drop intercept
-    return Z, alpha, norm2
-
-
-def _poly_predict(x_new: np.ndarray, alpha: np.ndarray, norm2: np.ndarray):
-    """Evaluate orthogonal polynomial basis on new data.
-
-    Uses the three-term recurrence with coefficients from :func:`_poly_fit`,
-    matching R's ``predict.poly()`` behaviour.
-    """
-    x_new = np.asarray(x_new, dtype=float)
-    degree = len(alpha)
-    Z = np.zeros((len(x_new), degree + 1))
-    Z[:, 0] = 1.0
-    Z[:, 1] = x_new - alpha[0]
-    for i in range(1, degree):
-        Z[:, i + 1] = ((x_new - alpha[i]) * Z[:, i]
-                        - (norm2[i + 1] / norm2[i]) * Z[:, i - 1])
-    Z = Z / np.sqrt(norm2[1:])
-    return Z[:, 1:]  # drop intercept
+from ._variance import VARIANCE_FUNCTIONS, poly_fit, poly_predict
 
 
 class spGDMM(BaseEstimator):
@@ -223,7 +182,7 @@ class spGDMM(BaseEstimator):
         if variance_type == "covariate_dependent":
             pw_distance = prep.pw_distance(prep.location_values_train_)
             pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
-            poly_cols, alpha, norm2 = _poly_fit(pw_dist_fit, degree=3)
+            poly_cols, alpha, norm2 = poly_fit(pw_dist_fit, degree=3)
             self._poly_alpha = alpha
             self._poly_norm2 = norm2
             self._X_sigma = np.column_stack([np.ones(len(pw_dist_fit)), poly_cols])
@@ -242,7 +201,7 @@ class spGDMM(BaseEstimator):
         """
         dist_mesh = self.preprocessor.dist_mesh_
         pw_dist = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
-        poly_cols = _poly_predict(pw_dist, self._poly_alpha, self._poly_norm2)
+        poly_cols = poly_predict(pw_dist, self._poly_alpha, self._poly_norm2)
         return np.column_stack([np.ones(len(pw_dist)), poly_cols])
 
     def build_model(
