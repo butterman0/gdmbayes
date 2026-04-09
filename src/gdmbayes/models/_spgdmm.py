@@ -310,9 +310,15 @@ class spGDMM(BaseEstimator):
                 location_values = self.preprocessor.location_values_train_
                 length_scale = self.preprocessor.length_scale_
 
-                cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale)
+                # Match White et al.: cov(d) = sig2_psi * exp(-d / rho) where
+                # rho = max(pw_distance) / 10 and d is in km.  PyMC's Exponential
+                # kernel uses exp(-d / (2*ls)), so ls = rho / 2.  Coordinates must
+                # be in the same units as pw_distance (km); for euclidean mode the
+                # raw coordinates are in metres, so divide by 1000.
+                gp_coords = location_values / 1000.0
+                cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale / 2)
                 gp = pm.gp.Latent(cov_func=cov)
-                psi = gp.prior("psi", X=location_values, dims=("site_train",))
+                psi = gp.prior("psi", X=gp_coords, dims=("site_train",))
 
                 # Use pm.Data so indices can be updated via pm.set_data during prediction
                 # when X_pred has a different number of sites than X_train.
