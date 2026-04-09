@@ -6,6 +6,7 @@ from ._plots import (
     summarise_sampling,
     plot_ppc,
     rgb_from_biological_space,
+    rgb_biological_space,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "summarise_sampling",
     "plot_ppc",
     "rgb_from_biological_space",
+    "rgb_biological_space",
 ]

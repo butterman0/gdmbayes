@@ -45,9 +45,8 @@ python examples/compare_results.py
 ### Class Hierarchy
 
 ```
-spGDMM (models/_spgdmm.py)               ← pure Bayesian estimator (sklearn-style)
-    └── GDMModel (models/_gdm_model.py)  ← Bayesian, returns GDMResult
-            └── gdm() convenience function
+spGDMM (models/_spgdmm.py)               ← Bayesian estimator (sklearn-style)
+    methods: fit, predict, gdm_transform, ispline_extract
 
 GDM (models/_gdm.py)                     ← frequentist sklearn estimator
     uses: GDMPreprocessor internally

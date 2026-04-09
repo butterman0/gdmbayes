@@ -941,6 +941,71 @@ class spGDMM(BaseEstimator):
             "y_pred_samples": y_samples,
         }
 
+    def gdm_transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Transform site-level predictors to the biological importance scale.
+
+        Equivalent to R's ``gdm.transform(model, data)``. Returns per-site
+        I-spline basis values with columns named ``{predictor}_{basis}``.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            Site-level data with columns [xc, yc, time_idx, predictor1, ...]
+            matching the structure used during training.
+
+        Returns
+        -------
+        pd.DataFrame
+            I-spline-transformed predictor values per site.
+        """
+        check_is_fitted(self, "idata_")
+        I_spline_bases = self.preprocessor.transform(X, biological_space=True)
+        n_predictors = self.preprocessor.n_predictors_
+        n_basis = self.preprocessor.n_spline_bases_
+        predictor_names = self.preprocessor.predictor_names_ or [
+            f"pred_{i}" for i in range(n_predictors)
+        ]
+        columns = [
+            f"{pred}_{j}"
+            for pred in predictor_names
+            for j in range(1, n_basis + 1)
+        ]
+        return pd.DataFrame(I_spline_bases, index=X.index, columns=columns)
+
+    def ispline_extract(self) -> dict:
+        """Extract I-spline knot positions and posterior median coefficients.
+
+        Equivalent to R's ``isplineExtract(model)``.
+
+        Returns
+        -------
+        dict
+            Maps each predictor name to ``{"x": knot_positions, "y": median_coefficients}``.
+            Geographic distance is returned under the key ``"distance"`` when present.
+        """
+        check_is_fitted(self, "idata_")
+        predictor_mesh = self.preprocessor.predictor_mesh_
+        dist_mesh = self.preprocessor.dist_mesh_
+        predictor_names = self.preprocessor.predictor_names_
+
+        result = {}
+        if "beta" in self.idata_.posterior:
+            beta_median = self.idata_.posterior.beta.median(dim=["chain", "draw"])
+            for i, pred in enumerate(predictor_names):
+                result[pred] = {
+                    "x": predictor_mesh[i],
+                    "y": beta_median.sel(feature=pred).values,
+                }
+
+        if "beta_dist" in self.idata_.posterior:
+            beta_dist_median = self.idata_.posterior.beta_dist.median(dim=["chain", "draw"])
+            result["distance"] = {
+                "x": dist_mesh,
+                "y": beta_dist_median.values,
+            }
+
+        return result
+
     @property
     def id(self) -> str:
         """Generate a unique hash value for the model based on config and version."""

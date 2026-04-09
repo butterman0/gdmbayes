@@ -13,8 +13,6 @@ from sklearn.exceptions import NotFittedError
 from gdmbayes import (
     spGDMM,
     GDM,
-    GDMModel,
-    GDMResult,
     ModelConfig,
     SamplerConfig,
     PreprocessorConfig,
@@ -868,31 +866,13 @@ class TestGDM:
         assert m.model_deviance_ >= 0
 
 
-class TestGDMModel:
-    """Tests for the Bayesian GDMModel wrapper and GDMResult."""
+class TestSpGDMMExtractMethods:
+    """Tests for gdm_transform() and ispline_extract() methods on spGDMM."""
 
-    _FAST_SAMPLER = SamplerConfig(
-        draws=2, tune=2, chains=1, nuts_sampler="pymc", progressbar=False
-    )
-
-    @pytest.fixture
-    def sample_data(self):
-        np.random.seed(7)
-        n = 15
-        X = pd.DataFrame({
-            "xc": np.random.uniform(0, 100, n),
-            "yc": np.random.uniform(0, 100, n),
-            "time_idx": np.zeros(n, dtype=int),
-            "temp": np.random.uniform(5, 20, n),
-            "depth": np.random.uniform(0, 200, n),
-        })
-        biomass = np.random.exponential(1, (n, 8))
-        y = pdist(biomass, "braycurtis").clip(1e-8, 1 - 1e-8)
-        return X, y
+    _FAST_SAMPLER = {"draws": 2, "tune": 2, "chains": 1, "nuts_sampler": "pymc", "progressbar": False}
 
     @pytest.fixture(scope="class")
-    def fitted_result(self):
-        """Fit once per class; return (model, result, X, y)."""
+    def fitted_model(self):
         np.random.seed(7)
         n = 15
         X = pd.DataFrame({
@@ -904,117 +884,46 @@ class TestGDMModel:
         })
         biomass = np.random.exponential(1, (n, 8))
         y = pdist(biomass, "braycurtis").clip(1e-8, 1 - 1e-8)
-        model = GDMModel(
-            geo=False,
-            sampler_config=TestGDMModel._FAST_SAMPLER,
-        )
-        result = model.fit(X, y, dataname="test_data")
-        return model, result, X, y
+        model = spGDMM(sampler_config=TestSpGDMMExtractMethods._FAST_SAMPLER)
+        model.fit(X, y)
+        return model, X
 
-    def test_fit_returns_gdmresult(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert isinstance(result, GDMResult)
+    def test_gdm_transform_returns_dataframe(self, fitted_model):
+        model, X = fitted_model
+        result = model.gdm_transform(X)
+        assert isinstance(result, pd.DataFrame)
 
-    def test_result_dataname(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert result.dataname == "test_data"
+    def test_gdm_transform_shape(self, fitted_model):
+        model, X = fitted_model
+        result = model.gdm_transform(X)
+        n_sites = len(X)
+        n_predictors = model.preprocessor.n_predictors_
+        n_basis = model.preprocessor.n_spline_bases_
+        assert result.shape == (n_sites, n_predictors * n_basis)
 
-    def test_result_has_deviances(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert np.isfinite(result.gdmdeviance)
-        assert np.isfinite(result.nulldeviance)
-        assert result.gdmdeviance >= 0
-        assert result.nulldeviance >= 0
+    def test_gdm_transform_column_names(self, fitted_model):
+        model, X = fitted_model
+        result = model.gdm_transform(X)
+        for col in result.columns:
+            parts = col.rsplit("_", 1)
+            assert len(parts) == 2
+            assert parts[1].isdigit()
 
-    def test_result_explained_in_range(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert 0.0 <= result.explained <= 100.0
+    def test_ispline_extract_returns_dict(self, fitted_model):
+        model, _ = fitted_model
+        result = model.ispline_extract()
+        assert isinstance(result, dict)
+        assert len(result) > 0
 
-    def test_result_predictors_list(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert isinstance(result.predictors, list)
-        assert len(result.predictors) > 0
+    def test_ispline_extract_keys_match_predictors(self, fitted_model):
+        model, _ = fitted_model
+        result = model.ispline_extract()
+        for pred in model.preprocessor.predictor_names_:
+            assert pred in result
 
-    def test_result_coefficients_non_empty(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert isinstance(result.coefficients, dict)
-        # Each predictor should have a list of coefficients (not empty [])
-        for pred, coefs in result.coefficients.items():
-            assert isinstance(coefs, list), f"coefficients[{pred!r}] is not a list"
-            assert len(coefs) > 0, f"coefficients[{pred!r}] is empty"
-
-    def test_result_knots_present(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert isinstance(result.knots, dict)
-        assert len(result.knots) > 0
-
-    def test_result_observed_shape(self, fitted_result):
-        _, result, _, y = fitted_result
-        assert result.observed.shape == y.shape
-
-    def test_result_predicted_shape(self, fitted_result):
-        _, result, _, y = fitted_result
-        assert result.predicted.shape == y.shape
-
-    def test_result_predicted_nonnegative(self, fitted_result):
-        _, result, _, _ = fitted_result
-        # exp(log_pred) is always non-negative; strict <1 is not guaranteed with
-        # minimal MCMC sampling (posterior mean near 0 → exp(0) = 1)
-        assert np.all(result.predicted >= 0)
-
-    def test_result_idata_present(self, fitted_result):
-        _, result, _, _ = fitted_result
-        assert result.idata is not None
-        assert "posterior" in result.idata
-
-    def test_predict_returns_array(self, fitted_result):
-        model, _, X, _ = fitted_result
-        preds = model.predict(X)
-        assert isinstance(preds, np.ndarray)
-
-    def test_predict_nonnegative(self, fitted_result):
-        model, _, X, _ = fitted_result
-        preds = model.predict(X)
-        assert np.all(preds >= 0)
-
-    def test_model_coefficients_property(self, fitted_result):
-        model, _, _, _ = fitted_result
-        coefs = model.coefficients
-        assert isinstance(coefs, dict)
-        assert len(coefs) > 0
-
-    def test_model_explained_property(self, fitted_result):
-        model, _, _, _ = fitted_result
-        assert isinstance(model.explained, float)
-        assert 0.0 <= model.explained <= 100.0
-
-    def test_geo_true_includes_geographic(self):
-        """With geo=True, 'geographic' should appear in knots."""
-        np.random.seed(9)
-        n = 15
-        X = pd.DataFrame({
-            "xc": np.random.uniform(0, 100, n),
-            "yc": np.random.uniform(0, 100, n),
-            "time_idx": np.zeros(n, dtype=int),
-            "temp": np.random.uniform(5, 20, n),
-        })
-        biomass = np.random.exponential(1, (n, 5))
-        y = pdist(biomass, "braycurtis").clip(1e-8, 1 - 1e-8)
-        model = GDMModel(geo=True, sampler_config=TestGDMModel._FAST_SAMPLER)
-        result = model.fit(X, y)
-        assert result.geo is True
-        assert "geographic" in result.knots
-
-    def test_predict_before_fit_raises(self):
-        model = GDMModel(sampler_config=TestGDMModel._FAST_SAMPLER)
-        X = pd.DataFrame({"xc": [0], "yc": [0], "time_idx": [0], "temp": [10]})
-        with pytest.raises(ValueError, match="fitted"):
-            model.predict(X)
-
-    def test_to_dict_round_trip(self, fitted_result):
-        _, result, _, _ = fitted_result
-        d = result.to_dict()
-        result2 = GDMResult.from_dict(d)
-        assert result2.dataname == result.dataname
-        assert result2.explained == result.explained
-        np.testing.assert_array_almost_equal(result2.predicted, result.predicted)
+    def test_ispline_extract_has_x_and_y(self, fitted_model):
+        model, _ = fitted_model
+        result = model.ispline_extract()
+        for pred, data in result.items():
+            assert "x" in data
+            assert "y" in data

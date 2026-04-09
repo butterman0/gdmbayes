@@ -15,9 +15,6 @@ from .models._spgdmm import spGDMM
 # Frequentist GDM
 from .models._gdm import GDM
 
-# Bayesian GDM wrapper
-from .models._gdm_model import GDMModel, GDMResult, gdm, gdm_transform, ispline_extract, rgb_biological_space
-
 # Model configuration
 from .models._config import ModelConfig, SamplerConfig
 
@@ -57,6 +54,7 @@ from .plotting._plots import (
     summarise_sampling,
     plot_ppc,
     rgb_from_biological_space,
+    rgb_biological_space,
 )
 
 # Preprocessing
@@ -73,12 +71,7 @@ __all__ = [
     "spGDMM",
     # Frequentist GDM
     "GDM",
-    # Bayesian GDM wrapper
-    "GDMModel",
-    "GDMResult",
-    "gdm",
-    "gdm_transform",
-    "ispline_extract",
+    # Plotting (re-exported)
     "rgb_biological_space",
     # Model configuration
     "ModelConfig",
