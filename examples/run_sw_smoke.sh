@@ -26,6 +26,7 @@ $PYTHON southwest_example.py \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
     --draws 1000 --tune 4000 --chains 4 --seed ${SEED} \
     --n_folds 3 \
+    --skip_full_model \
     --output_dir results/southwest
 
 echo "End: $(date)"

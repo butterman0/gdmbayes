@@ -75,6 +75,10 @@ parser.add_argument(
     "--n_folds", type=int, default=10,
     help="Number of CV folds to run (default 10).  Pass 1 to run only the first fold."
 )
+parser.add_argument(
+    "--skip_full_model", action="store_true",
+    help="Skip fitting/saving the full-data model (CV only).  Use for smoke tests."
+)
 args = parser.parse_args()
 
 os.makedirs(args.output_dir, exist_ok=True)
@@ -272,19 +276,20 @@ if args.mode in ("bayes", "both"):
             )
 
         # --- Full-data model (saved for response curves / paper figures) ---
-        out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{tag}.nc")
-        lock_path = out_nc + ".lock"
-        with open(lock_path, "w") as _lock_f:
-            import fcntl
-            fcntl.flock(_lock_f, fcntl.LOCK_EX)
-            if os.path.exists(out_nc):
-                print(f"  Full-data model: loading from {out_nc}")
-                full_model = spGDMM.load(out_nc)
-            else:
-                full_model = make_spgdmm()
-                full_model.fit(X, y)
-                full_model.save(out_nc)
-                print(f"  Full-data model saved to {out_nc}")
+        if not args.skip_full_model:
+            out_nc = os.path.join(args.output_dir, f"southwest_spgdmm_{tag}.nc")
+            lock_path = out_nc + ".lock"
+            with open(lock_path, "w") as _lock_f:
+                import fcntl
+                fcntl.flock(_lock_f, fcntl.LOCK_EX)
+                if os.path.exists(out_nc):
+                    print(f"  Full-data model: loading from {out_nc}")
+                    spGDMM.load(out_nc)
+                else:
+                    full_model = make_spgdmm()
+                    full_model.fit(X, y)
+                    full_model.save(out_nc)
+                    print(f"  Full-data model saved to {out_nc}")
 
         # --- Masked-holdout CV (White et al. 2024 strategy) ---
         fold_metrics = []
@@ -332,19 +337,24 @@ if args.mode in ("bayes", "both"):
             "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
         })
 
-    # Save all CV metrics to a single CSV (appending if running one config at a time)
+    # Save all CV metrics to a single CSV (appending if running one config at a time).
+    # Use a lock file to prevent race conditions when multiple SLURM array tasks finish
+    # concurrently and attempt to read-modify-write the same CSV.
     metrics_path = os.path.join(args.output_dir, "southwest_cv_metrics.csv")
     new_df = pd.DataFrame(all_cv_metrics)
-    if os.path.exists(metrics_path):
-        existing = pd.read_csv(metrics_path)
-        mask = ~(
-            existing["config_tag"].isin(new_df["config_tag"]) &
-            (existing["seed"] == args.seed) &
-            (existing["n_folds"] == args.n_folds)
-        )
-        existing = existing[mask]
-        new_df = pd.concat([existing, new_df], ignore_index=True)
-    new_df.to_csv(metrics_path, index=False)
+    import fcntl
+    with open(metrics_path + ".lock", "w") as _csv_lock:
+        fcntl.flock(_csv_lock, fcntl.LOCK_EX)
+        if os.path.exists(metrics_path):
+            existing = pd.read_csv(metrics_path)
+            mask = ~(
+                existing["config_tag"].isin(new_df["config_tag"]) &
+                (existing["seed"] == args.seed) &
+                (existing["n_folds"] == args.n_folds)
+            )
+            existing = existing[mask]
+            new_df = pd.concat([existing, new_df], ignore_index=True)
+        new_df.to_csv(metrics_path, index=False)
     print(f"\nCV metrics saved to {metrics_path}")
 
 print("\nDone.")
