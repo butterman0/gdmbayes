@@ -1,0 +1,380 @@
+%% scaffold.tex --- Planning outline for the gdmbayes MEE Application Paper
+%% Compile: tectonic scaffold.tex  (or pdflatex scaffold.tex)
+%%
+%% This is NOT the submission draft. It is a structured scaffold showing
+%% what each section needs, annotated with TODOs and open questions.
+%% Full prose lives in manuscript.tex.
+
+\documentclass[11pt,a4paper]{article}
+
+% ---- Packages ----------------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{mdframed}
+\usepackage{booktabs}
+\usepackage[authoryear,round]{natbib}
+\usepackage{hyperref}
+
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!60!black}
+
+% ---- Colours -----------------------------------------------------------------
+\definecolor{donegreen}{HTML}{1a7a1a}
+\definecolor{todored}{HTML}{c0392b}
+\definecolor{questionblue}{HTML}{1a3c8c}
+\definecolor{notegray}{HTML}{555555}
+
+% ---- Annotation macros -------------------------------------------------------
+\newcommand{\done}[1]{{\color{donegreen}\textbf{[DONE]} #1}}
+\newcommand{\todo}[1]{{\color{todored}\textbf{[TODO]} #1}}
+\newcommand{\question}[1]{{\color{questionblue}\textbf{[?]} \textit{#1}}}
+\newcommand{\note}[1]{{\color{notegray}\textit{Note: #1}}}
+
+\newenvironment{scaffold}[1]{%
+  \begin{mdframed}[backgroundcolor=gray!6, linecolor=gray!30,
+                   leftmargin=0pt, rightmargin=0pt,
+                   innerleftmargin=8pt, innerrightmargin=8pt,
+                   innertopmargin=6pt, innerbottommargin=6pt]
+  \noindent\textbf{#1}\par\vspace{2pt}
+  \begin{itemize}[leftmargin=1.4em, topsep=2pt, itemsep=1pt, parsep=0pt]
+}{%
+  \end{itemize}
+  \end{mdframed}
+  \vspace{4pt}
+}
+
+% ---- Title block -------------------------------------------------------------
+\title{\textbf{gdmbayes} --- Application Paper Scaffold\\[0.4em]
+       \normalsize\textit{Methods in Ecology \& Evolution --- Application Paper track}}
+\author{Harold Horsley}
+\date{Draft: \today}
+
+% =============================================================================
+\begin{document}
+\maketitle
+\onehalfspacing
+\tableofcontents
+\vspace{1em}
+\noindent\rule{\linewidth}{0.4pt}
+
+% ---- Legend ------------------------------------------------------------------
+\noindent
+\done{Text or section is written / data in hand.}\quad
+\todo{Needs writing or analysis.}\quad
+\question{Open question --- decision needed.}\quad
+\note{Annotation only.}
+
+\vspace{1em}
+
+% =============================================================================
+\section{Title and Author Block}
+% =============================================================================
+
+\begin{scaffold}{What we need}
+  \item \done{Title: \textit{gdmbayes}: A Python Package for Bayesian Generalised
+    Dissimilarity Modelling}
+  \item \todo{Confirm co-authors (if any) and affiliations}
+  \item \todo{Add institutional email / ORCID}
+  \item \question{Running head --- suggest ``gdmbayes: Bayesian GDM in Python''}
+  \item \note{MEE Application Papers: 3,500-word limit (excl.\ abstract,
+    references, tables/figures); check compliance before submission.}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Abstract}
+% =============================================================================
+
+\begin{scaffold}{Status: mostly written --- needs Bayesian numbers}
+  \item \done{Motivation: GDM widespread, no Python, no uncertainty quantification}
+  \item \done{Contribution: gdmbayes, sklearn-compatible + Bayesian, PyMC}
+  \item \done{Frequentist benchmark: RMSE 0.064 vs.\ 0.074 for R \texttt{gdm}}
+  \item \todo{Bayesian benchmark: fill in spGDMM RMSE/MAE from CV run}
+  \item \todo{Tighten to $\leq$350 words (MEE limit)}
+  \item \question{Include GP spatial effect as a separate bullet point?
+    Likely yes --- it is a key differentiator.}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Introduction}
+% =============================================================================
+
+\begin{scaffold}{Status: first draft written --- needs tightening}
+  \item \done{GDM background --- Ferrier et al.\ 2007, I-splines, cloglog link}
+  \item \done{Applications: beta diversity, conservation, climate vulnerability}
+  \item \done{Gap 1 --- no Python GDM implementation exists}
+  \item \done{Gap 2 --- no uncertainty quantification in any GDM tool}
+  \item \done{Prior Bayesian GDM work: BBGDM (Woolley 2017), Lusiana 2023/2025,
+    White et al.\ 2024 (spGDMM / NIMBLE)}
+  \item \done{Contribution statement: (i) frequentist sklearn; (ii) Bayesian PyMC}
+  \item \todo{Add 1-sentence road-map paragraph at end of introduction:
+    ``Section~2 describes the statistical model \ldots''}
+  \item \question{Cite any Python SDM packages (e.g.\ elapid) to contextualise
+    the Python ecosystem gap?}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Statistical Framework}
+% =============================================================================
+
+\note{In the current draft this is folded into ``Package Description''. For MEE
+the statistical model should probably be its own section so reviewers can assess
+it independently of the software.}
+
+\subsection{I-spline basis functions}
+
+\begin{scaffold}{Status: equations written; figure missing}
+  \item \done{Definition of I-splines as integral of M-splines (Ramsay 1988)}
+  \item \done{Pairwise feature: $f_{k,\ell}(i,j) = |I_\ell(x_{ki}) -
+    I_\ell(x_{kj})|$}
+  \item \todo{FIGURE~1 --- small figure showing one predictor's spline basis
+    (3 knots, degree 3): individual $I_\ell$ curves + pairwise feature illustration}
+\end{scaffold}
+
+\subsection{Frequentist GDM}
+
+\begin{scaffold}{Status: mostly written}
+  \item \done{cloglog link, IRNNLS objective}
+  \item \done{Predictor importance = sum of coefficients per predictor}
+  \item \todo{Note Jeffreys smoothing at $y=1$ boundary}
+\end{scaffold}
+
+\subsection{Bayesian GDM (spGDMM)}
+
+\begin{scaffold}{Status: equations written; prior table and DAG missing}
+  \item \done{Tobit (censored-normal) likelihood on $\log y$}
+  \item \done{Linear predictor with $\alpha_k$ importance weights}
+  \item \done{Dirichlet I-spline coefficients per predictor}
+  \item \done{GP spatial random effect}
+  \item \todo{Table or list of all priors: intercept, $\alpha_k$, $\sigma$,
+    $\sigma_\psi$, $\ell$}
+  \item \todo{Explain variance structure options: homogeneous ($\sigma^2 \sim
+    \mathrm{InvGamma}$), covariate-dependent ($\sigma^2 = \exp(X_\sigma
+    \beta_\sigma)$ where $X_\sigma = [1, \mathrm{poly}(d, 3)]$ uses
+    orthogonal polynomials of pairwise geographic distance), and polynomial
+    ($\sigma^2 = \exp(\text{cubic in } \mu)$)}
+  \item \todo{Explain spatial-effect options: none / abs\_diff / squared\_diff}
+  \item \question{Include a directed-acyclic graph (DAG) of the full
+    hierarchical model? Likely helps MEE reviewers --- FIGURE~2}
+\end{scaffold}
+
+
+\subsection{Masked-holdout cross-validation}
+
+\begin{scaffold}{Status: written}
+  \item \done{Motivation: standard train/test splitting drops test sites,
+    so the GP has no spatial effect at those locations.  Masked-holdout CV
+    fits on \emph{all} sites but masks held-out pairs as latent variables,
+    allowing the GP to sample $\psi$ at test-site locations.}
+  \item \done{Pair selection: a pair $(i,j)$ is held out if \emph{either}
+    endpoint belongs to the test fold, preventing test-site environmental
+    information from influencing the likelihood.}
+  \item \done{Likelihood split: observed pairs use a censored-Normal
+    likelihood (upper-censored at $\log y = 0$, i.e.\ $y = 1$);
+    held-out pairs are free Normal latent variables sharing the same
+    linear predictor $\mu$ and variance $\sigma^2$.}
+  \item \done{The posterior samples of the held-out latent variables are
+    the predictive distribution; back-transform via
+    $Z = \min(1, \exp(\log V))$ and score with RMSE, MAE, CRPS.}
+  \item \todo{Explain briefly why this differs from standard pair-level
+    or site-level CV (1--2 sentences).}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Package Architecture}
+% =============================================================================
+
+\begin{scaffold}{Status: mostly written --- needs architecture figure}
+  \item \done{Class hierarchy: GDMPreprocessor, GDM, spGDMM, GDMModel}
+  \item \done{sklearn API: fit / predict / transform}
+  \item \done{Config objects: PreprocessorConfig, ModelConfig, SamplerConfig}
+  \item \done{InferenceData / NetCDF serialisation via ArviZ}
+  \item \todo{FIGURE~3 --- architecture diagram: class boxes with arrows for
+    composition / inheritance / data flow}
+  \item \todo{Code snippet: end-to-end workflow from raw data to posterior}
+  \item \question{Mention SLURM/HPC scripts for large CV runs? Probably a
+    supplementary note, not main text.}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Running Example: Southwest Australia Plant Diversity}
+% =============================================================================
+
+\note{Dataset: 94 sites, 856 species, 10 env.\ predictors,
+$n = 4{,}371$ pairs, Bray--Curtis $y \in [0.33, 1.00]$, 138 pairs at $y=1$.}
+
+\subsection{Dataset and cross-validation protocol}
+
+\begin{scaffold}{Status: written}
+  \item \done{Describe SW Australia dataset (Fitzpatrick 2013 / R gdm)}
+  \item \done{Cite White et al.\ 2024 Table~1 as benchmark}
+  \item \done{10-fold site-level CV; sites assigned to folds,
+    pairs held out if \emph{either} endpoint is a test site}
+  \item \done{Masked-holdout strategy for spatial models: model fitted on
+    all sites, held-out pairs treated as latent variables so the GP can
+    sample $\psi$ at test-site locations (see Statistical Framework)}
+\end{scaffold}
+
+\subsection{Results}
+
+\begin{scaffold}{Status: frequentist done; Bayesian TBD; plots needed}
+  \item \done{Frequentist GDM: RMSE 0.064, MAE 0.042}
+  \item \todo{Run spGDMM CV for: (i) no spatial; (ii) abs\_diff;
+    (iii) squared\_diff --- fill Table~\ref{tab:benchmark}}
+  \item \todo{FIGURE~4 --- predicted vs.\ observed scatter, colour by CV fold,
+    1:1 line, separate panels for GDM and best spGDMM}
+  \item \todo{FIGURE~5 --- predictor importance posteriors (violin / HDI)
+    for $\alpha_k$, NNLS importance overlaid as a point estimate}
+  \item \todo{FIGURE~6 (optional) --- GP spatial effect map, posterior mean
+    $\bar\psi_i$ on SW Australia site locations}
+  \item \question{Report $R^2$ alongside RMSE/MAE for consistency with the
+    ecology literature?}
+\end{scaffold}
+
+\begin{table}[h]
+  \centering
+  \caption{Predictive performance under 10-fold CV, SW Australia dataset.
+    \todo{Fill spGDMM rows from MCMC CV run.}}
+  \label{tab:benchmark}
+  \begin{tabular}{lcc}
+    \toprule
+    Model & RMSE & MAE \\
+    \midrule
+    R \textbf{gdm} --- Ferrier \citep{white2024}              & 0.0737 & 0.0549 \\
+    Best spGDMM \citep{white2024}                             & 0.0731 & 0.0545 \\
+    \textbf{gdmbayes} \texttt{GDM}                           & 0.0636 & 0.0424 \\
+    \textbf{gdmbayes} \texttt{spGDMM} --- no spatial effect  & [TBD]  & [TBD]  \\
+    \textbf{gdmbayes} \texttt{spGDMM} --- \texttt{abs\_diff} & [TBD]  & [TBD]  \\
+    \textbf{gdmbayes} \texttt{spGDMM} --- \texttt{sqr\_diff} & [TBD]  & [TBD]  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+% =============================================================================
+\section{Comparison with Existing Tools}
+% =============================================================================
+
+\begin{scaffold}{Status: table written --- minor updates needed}
+  \item \done{Feature comparison table: R gdm, BBGDM, Lusiana, White/NIMBLE,
+    gdmbayes}
+  \item \todo{Verify Lusiana 2025 (MethodsX) is a package or just a paper ---
+    update ``installable'' row accordingly}
+  \item \todo{Add row for ``Ocean distance support'' (gdmbayes unique feature)}
+  \item \question{Should this section come before the running example?
+    MEE reviewers often want the comparison early.}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Discussion}
+% =============================================================================
+
+\note{No Discussion exists yet --- this is the biggest remaining gap.}
+
+\begin{scaffold}{Paragraph plan}
+  \item \todo{Para~1 --- Restate contributions: first Python GDM, first
+    packaged Bayesian GDM, sklearn integration}
+  \item \todo{Para~2 --- Interpret benchmark results: why does the Python
+    \texttt{GDM} beat R gdm? (IRNNLS vs.\ single-pass NNLS, Jeffreys
+    smoothing, CV protocol differences)}
+  \item \todo{Para~3 --- Value of Bayesian extension: UQ for predictor
+    importance, censored-normal at $y=1$, GP spatial random effect}
+  \item \todo{Para~4 --- Limitations: (i) MCMC cost for large $n$;
+    (ii) exact GP scales as $O(n^3)$ in sites; (iii) no built-in
+    multi-species or ordination link}
+  \item \todo{Para~5 --- Future directions: approximate GP (HSGP),
+    integration with PyMC-experimental, climate-projection workflows}
+  \item \question{Mention JOSS parallel submission for open-source visibility?}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Conclusions}
+% =============================================================================
+
+\begin{scaffold}{1--2 short paragraphs}
+  \item \todo{Summary: gdmbayes brings GDM into Python and adds Bayesian
+    inference for the first time as a distributable package}
+  \item \todo{Broader impact: UQ for biodiversity prediction, ML pipeline
+    integration, reproducible config-driven workflow}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Data and Code Availability}
+% =============================================================================
+
+\begin{scaffold}{Status: mostly written}
+  \item \done{GitHub URL}
+  \item \done{SW Australia data from R gdm package, in \texttt{examples/data/}}
+  \item \todo{Mint Zenodo DOI and add to text}
+  \item \todo{PyPI release and version badge}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Figures --- Master List}
+% =============================================================================
+
+\begin{scaffold}{All figures needed for submission (target $\leq$6)}
+  \item \todo{FIGURE~1 --- I-spline basis illustration: one predictor, knot
+    positions, individual $I_\ell$ curves, and pairwise feature
+    $|I_\ell(x_i) - I_\ell(x_j)|$. \note{1 panel; matplotlib; conceptual.}}
+
+  \item \todo{FIGURE~2 (optional) --- DAG of the full hierarchical Bayesian
+    model: plates for predictors $k$, spline knots $\ell$, pairs $(i,j)$,
+    GP node over sites. \note{tikz or daft.}}
+
+  \item \todo{FIGURE~3 --- Package architecture: class boxes
+    (GDMPreprocessor, GDM, spGDMM, GDMModel) with composition /
+    inheritance / data-flow arrows. \note{graphviz or draw.io.}}
+
+  \item \todo{FIGURE~4 --- Predicted vs.\ observed dissimilarity: scatter,
+    colour by CV fold, 1:1 line, panels for GDM and best spGDMM.}
+
+  \item \todo{FIGURE~5 --- Predictor importance posteriors: violin / HDI plot
+    for $\alpha_k$ (all predictors + geo), NNLS point overlaid.}
+
+  \item \todo{FIGURE~6 (optional) --- GP spatial effect map: posterior mean
+    $\bar\psi_i$ on SW Australia site locations.}
+\end{scaffold}
+
+
+% =============================================================================
+\section{Pre-submission Checklist}
+% =============================================================================
+
+\begin{scaffold}{Items to resolve before submitting to MEE}
+  \item \question{Word count: MEE Application Papers $\leq$3,500 words (main
+    text excl.\ abstract, refs, tables, figures). Run \texttt{texcount}.}
+  \item \question{Figure count: MEE recommends $\leq$6 figures for Application
+    Papers.}
+  \item \question{Confirm submit to MEE first; JOSS in parallel is an option
+    (different scope, no double-submission conflict).}
+  \item \todo{Add \texttt{lusiana2025} to \texttt{references.bib} and cite
+    in comparison table}
+  \item \todo{Run \texttt{ruff check} and \texttt{mypy} clean before
+    submission (code quality claim appears in the text)}
+  \item \todo{Ensure all \texttt{examples/} scripts are self-contained and
+    reproducible}
+  \item \todo{Mint Zenodo DOI; update GitHub repo with DOI badge}
+  \item \todo{Write \texttt{CONTRIBUTING.md} and \texttt{CITATION.cff}}
+  \item \todo{Add \texttt{lusiana2025} citation and verify ``installable''
+    column in comparison table}
+\end{scaffold}
+
+
+% ---- References --------------------------------------------------------------
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
