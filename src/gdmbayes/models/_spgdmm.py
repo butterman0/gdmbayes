@@ -106,7 +106,7 @@ class spGDMM(BaseEstimator):
 
         self.model = None
         self.idata: az.InferenceData | None = None
-        self._config_dict = self._config.to_dict()
+
         # Raw inputs (set by _generate_and_preprocess_model_data)
         self.X: pd.DataFrame | None = None  # site-level input
         self.y: np.ndarray | None = None    # raw pairwise dissimilarities
@@ -124,10 +124,19 @@ class spGDMM(BaseEstimator):
         """Return True only after a successful fit (idata with posterior exists)."""
         return self.idata is not None and "posterior" in self.idata
 
+    def _more_tags(self):
+        return {"no_validation": True, "non_deterministic": True}
+
     @property
     def config(self) -> dict:
         """Get model configuration as dictionary (legacy interface)."""
-        return self._config_dict
+        return self._config.to_dict()
+
+    @property
+    def _variance_type(self) -> str:
+        """Return the variance type as a string ('custom' for callable)."""
+        v = self._config.variance
+        return v if isinstance(v, str) else "custom"
 
     def _generate_and_preprocess_model_data(
         self, X: pd.DataFrame, y: pd.Series, holdout_mask: np.ndarray | None = None,
@@ -176,10 +185,7 @@ class spGDMM(BaseEstimator):
         # Build orthogonal polynomial basis for covariate-dependent variance.
         # Matches White et al.'s R code: X_sigma = cbind(1, poly(vec_distance, 3))
         # Only computed when variance="covariate_dependent".
-        variance_type = (
-            self._config.variance if isinstance(self._config.variance, str) else "custom"
-        )
-        if variance_type == "covariate_dependent":
+        if self._variance_type == "covariate_dependent":
             pw_distance = prep.pw_distance(prep.location_values_train_)
             pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
             poly_cols, alpha, norm2 = poly_fit(pw_dist_fit, degree=3)
@@ -550,12 +556,6 @@ class spGDMM(BaseEstimator):
                 )
             residuals = log_y - mu_fixed
 
-            variance_type = (
-                self._config.variance
-                if isinstance(self._config.variance, str)
-                else "custom"
-            )
-
             def _profile_nll(beta_sigma, linear_pred_fn):
                 """Gaussian NLL with heterogeneous variance."""
                 lp = np.clip(linear_pred_fn(beta_sigma), -20, 20)
@@ -563,7 +563,7 @@ class spGDMM(BaseEstimator):
 
             beta_sigma_init = None
 
-            if variance_type == "covariate_dependent" and self._X_sigma is not None:
+            if self._variance_type == "covariate_dependent" and self._X_sigma is not None:
                 X_sig = self._X_sigma
                 if self._holdout_mask is not None:
                     X_sig = X_sig[~self._holdout_mask]
@@ -574,7 +574,7 @@ class spGDMM(BaseEstimator):
                 if res_sigma.success:
                     beta_sigma_init = res_sigma.x
 
-            elif variance_type == "polynomial":
+            elif self._variance_type == "polynomial":
                 def poly_linear(bs):
                     return bs[0] + bs[1] * mu_fixed + bs[2] * mu_fixed ** 2 + bs[3] * mu_fixed ** 3
 
@@ -705,7 +705,10 @@ class spGDMM(BaseEstimator):
         self.sampler_config = {**self.sampler_config, **sampler_updates}
 
         if y is None:
-            y = np.zeros(X.shape[0])
+            raise ValueError(
+                "y is required for fit(). Pass pairwise dissimilarities "
+                "(length n_sites*(n_sites-1)//2)."
+            )
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
         self.build_model(X, y_series.values, holdout_mask=holdout_mask)
@@ -944,7 +947,7 @@ class spGDMM(BaseEstimator):
     def id(self) -> str:
         """Generate a unique hash value for the model based on config and version."""
         hasher = hashlib.sha256()
-        hasher.update(str(self._config.to_dict().values()).encode())
+        hasher.update(json.dumps(self._config.to_dict(), sort_keys=True).encode())
         hasher.update(self.version.encode())
         hasher.update(self._model_type.encode())
         return hasher.hexdigest()[:16]

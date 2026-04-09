@@ -517,6 +517,11 @@ class TestSpGDMMSklearnInterface:
         # Should not raise
         check_is_fitted(preprocessed_model)
 
+    def test_fit_raises_on_y_none(self, model):
+        X, _ = _make_sample_data()
+        with pytest.raises(ValueError, match="y is required"):
+            model.fit(X, y=None)
+
     def test_id_is_deterministic(self, model):
         assert model.id == model.id
         # Two models with identical config share the same id
