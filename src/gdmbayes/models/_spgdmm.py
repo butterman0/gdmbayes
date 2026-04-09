@@ -170,6 +170,8 @@ class spGDMM(BaseEstimator):
         self.X = X
         self.y = y_array
         self.log_y = np.log(np.maximum(y_array, np.finfo(float).eps))
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = np.array(X.columns)
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
         try:
@@ -613,7 +615,7 @@ class spGDMM(BaseEstimator):
 
         return initvals
 
-    def _sample_model(self, **kwargs) -> az.InferenceData:
+    def _sample_model(self, sampler_args: "dict | None" = None, **kwargs) -> az.InferenceData:
         """Sample from the PyMC model.
 
         Uses BFGS-based initial values for ``beta_0``, ``beta``, and
@@ -626,7 +628,9 @@ class spGDMM(BaseEstimator):
                 "The model hasn't been built yet, call .build_model() first or .fit() instead."
             )
         with self.model:
-            sampler_args = {**self.sampler_config, **kwargs}
+            if sampler_args is None:
+                sampler_args = dict(self.sampler_config)
+            sampler_args.update(kwargs)
 
             # Compute initial values (constrained space) and inject into model
             initvals = self._compute_initvals()
@@ -699,21 +703,21 @@ class spGDMM(BaseEstimator):
         self : spGDMM
             The fitted estimator. Access inference data via ``self.idata``.
         """
-        sampler_updates: dict = {"progressbar": progressbar, **kwargs}
-        if random_seed is not None:
-            sampler_updates["random_seed"] = random_seed
-        self.sampler_config = {**self.sampler_config, **sampler_updates}
-
         if y is None:
             raise ValueError(
                 "y is required for fit(). Pass pairwise dissimilarities "
                 "(length n_sites*(n_sites-1)//2)."
             )
+
+        sampler_args: dict = {**self.sampler_config, "progressbar": progressbar, **kwargs}
+        if random_seed is not None:
+            sampler_args["random_seed"] = random_seed
+
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
         self.build_model(X, y_series.values, holdout_mask=holdout_mask)
 
-        self.idata = self._sample_model()
+        self.idata = self._sample_model(sampler_args=sampler_args)
 
         # Save only site-level X in fit_data. Pair-level y is recoverable from
         # idata.constant_data["log_y_data"]. Concatenating X (n_sites rows) with
@@ -816,16 +820,10 @@ class spGDMM(BaseEstimator):
         -------
         np.ndarray
         """
-        posterior_predictive_samples = self.sample_posterior_predictive(
-            X_pred, extend_idata, combined=False, predictions=predictions, **kwargs
-        )
-        if self.output_var not in posterior_predictive_samples:
-            raise KeyError(
-                f"Output variable {self.output_var} not found in posterior predictive samples."
-            )
-        return posterior_predictive_samples[self.output_var].mean(
-            dim=["chain", "draw"], keep_attrs=True
-        ).data
+        return self.predict_posterior(
+            X_pred, extend_idata=extend_idata, combined=False,
+            predictions=predictions, **kwargs
+        ).mean(dim=["chain", "draw"], keep_attrs=True).data
 
     def predict_posterior(
         self,
