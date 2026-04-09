@@ -196,6 +196,18 @@ class spGDMM(BaseEstimator):
             self._X_sigma = None
             self._poly_transform = None
 
+    def _build_sigma_basis(self, pw_distance: np.ndarray) -> np.ndarray:
+        """Build QR-orthogonalised polynomial basis for covariate-dependent variance.
+
+        Applies the same standardization and QR transform (``_poly_transform``)
+        computed at training time to a new vector of pairwise distances.
+        """
+        dist_mesh = self.preprocessor.dist_mesh_
+        pw_dist = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
+        d_z = (pw_dist - self._d_mean) / self._d_std
+        V = np.column_stack([np.ones_like(d_z), d_z, d_z ** 2, d_z ** 3])
+        return V @ self._poly_transform
+
     def build_model(
         self,
         X: "pd.DataFrame | None" = None,
@@ -379,17 +391,7 @@ class spGDMM(BaseEstimator):
                 X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
             )
             pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
-            dist_mesh = self.preprocessor.dist_mesh_
-            pw_dist_pred = np.clip(pw_dist_pred, dist_mesh[0], dist_mesh[-1])
-            d_z_pred = (pw_dist_pred - self._d_mean) / self._d_std
-            V_pred = np.column_stack([
-                np.ones_like(d_z_pred),
-                d_z_pred,
-                d_z_pred ** 2,
-                d_z_pred ** 3,
-            ])
-            # Apply the same QR-based orthogonal transform used at training time.
-            set_data_dict["X_sigma_data"] = V_pred @ self._poly_transform
+            set_data_dict["X_sigma_data"] = self._build_sigma_basis(pw_dist_pred)
 
         # For spatial models: recompute pair indices for the prediction sites so the
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
