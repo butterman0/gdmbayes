@@ -16,7 +16,7 @@ from dms_variants.ispline import Isplines
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from ._config import PreprocessorConfig
+from .config import PreprocessorConfig
 
 
 class GDMPreprocessor(BaseEstimator, TransformerMixin):

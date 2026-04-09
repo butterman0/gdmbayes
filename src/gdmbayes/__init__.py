@@ -5,21 +5,21 @@ A Python package for modelling ecological dissimilarities using spatial
 and environmental predictors with I-spline basis functions.
 """
 
-from . import _version  # noqa: F401
+from . import version  # noqa: F401
 
-__version__ = _version.__version__
+__version__ = version.__version__
 
 # Core Bayesian model
-from .models._spgdmm import spGDMM
+from .models.spgdmm import spGDMM
 
 # Frequentist GDM
-from .models._gdm import GDM
+from .models.gdm import GDM
 
 # Model configuration
-from .models._config import ModelConfig, SamplerConfig
+from .models.config import ModelConfig, SamplerConfig
 
 # Built-in variance functions
-from .models._variance import (
+from .models.variance import (
     variance_homogeneous,
     variance_covariate_dependent,
     variance_polynomial,
@@ -27,7 +27,7 @@ from .models._variance import (
 )
 
 # Built-in spatial effect functions
-from .models._spatial import (
+from .models.spatial import (
     spatial_abs_diff,
     spatial_squared_diff,
     SPATIAL_FUNCTIONS,
@@ -48,7 +48,7 @@ from .distances import (
 )
 
 # Plotting
-from .plotting._plots import (
+from .plotting.plots import (
     plot_isplines,
     plot_crps_comparison,
     summarise_sampling,
@@ -58,8 +58,8 @@ from .plotting._plots import (
 )
 
 # Preprocessing
-from .preprocessing._config import PreprocessorConfig
-from .preprocessing._preprocessor import GDMPreprocessor
+from .preprocessing.config import PreprocessorConfig
+from .preprocessing.preprocessor import GDMPreprocessor
 
 # Utilities
 from .utils import site_pairs, holdout_pairs

@@ -6,8 +6,8 @@ from scipy.optimize import nnls
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_is_fitted
 
-from ..preprocessing._config import PreprocessorConfig
-from ..preprocessing._preprocessor import GDMPreprocessor
+from ..preprocessing.config import PreprocessorConfig
+from ..preprocessing.preprocessor import GDMPreprocessor
 
 
 class GDM(BaseEstimator, RegressorMixin):

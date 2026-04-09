@@ -5,13 +5,13 @@ multiple distance metrics for GDM modeling, similar to the R GDM package.
 """
 
 # Distance calculator classes
-from ._general import (
+from .general import (
     DistanceCalculator,
     compute_distance_matrix,
 )
 
 # Standard distance functions
-from ._general import (
+from .general import (
     euclidean_distance,
     geodesic_distance,
     manhattan_distance,
@@ -19,7 +19,7 @@ from ._general import (
 )
 
 # Backward compatibility - deprecated
-from ._general import (
+from .general import (
     OceanPathDistance as _DeprecatedOceanPathDistance,
     ocean_path_distance_pdist as _deprecated_ocean_path_distance_pdist,
 )

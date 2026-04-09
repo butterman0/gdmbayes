@@ -19,11 +19,11 @@ from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
-from ..preprocessing._config import PreprocessorConfig
-from ..preprocessing._preprocessor import GDMPreprocessor
-from ._config import ModelConfig, SamplerConfig
-from ._spatial import SPATIAL_FUNCTIONS
-from ._variance import VARIANCE_FUNCTIONS, poly_fit, poly_predict
+from ..preprocessing.config import PreprocessorConfig
+from ..preprocessing.preprocessor import GDMPreprocessor
+from .config import ModelConfig, SamplerConfig
+from .spatial import SPATIAL_FUNCTIONS
+from .variance import VARIANCE_FUNCTIONS, poly_fit, poly_predict
 
 
 class spGDMM(BaseEstimator):

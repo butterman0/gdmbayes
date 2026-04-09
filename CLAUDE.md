@@ -45,14 +45,14 @@ python examples/compare_results.py
 ### Class Hierarchy
 
 ```
-spGDMM (models/_spgdmm.py)               ← Bayesian estimator (sklearn-style)
+spGDMM (models/spgdmm.py)               ← Bayesian estimator (sklearn-style)
     methods: fit, predict, gdm_transform, ispline_extract
 
-GDM (models/_gdm.py)                     ← frequentist sklearn estimator
+GDM (models/gdm.py)                     ← frequentist sklearn estimator
     uses: GDMPreprocessor internally
     fit(X, y) → NNLS on I-spline features → coef_, predictor_importance_, explained_
 
-GDMPreprocessor (preprocessing/_preprocessor.py)  ← sklearn transformer
+GDMPreprocessor (preprocessing/preprocessor.py)  ← sklearn transformer
     owns: I-spline mesh computation, pairwise distance, feature matrix assembly
     used by: spGDMM (as self.preprocessor) and GDM (as self.preprocessor_)
 ```
@@ -65,7 +65,7 @@ GDMPreprocessor (preprocessing/_preprocessor.py)  ← sklearn transformer
 - **MCMC initialisation**: `_compute_initvals()` runs a multi-stage BFGS matching White et al.: (1) squared-error for beta_0/beta, (1b) joint re-optimisation of [beta_0, log_beta, psi] including the spatial effect term, (2) profile Gaussian NLL for beta_sigma given fixed mu+spatial. Psi init is critical — without it NUTS starts with zero spatial contribution and struggles to discover GP structure.
 - **GP coordinate units**: The GP receives coordinates in km (raw coords ÷ 1000 for euclidean) so they match the `length_scale_` (also in km). PyMC's `Exponential` kernel uses `exp(-d/(2*ls))`, while White uses `exp(-d/rho)`, so `ls = rho/2`.
 - **`build_model(X, y)`**: Single entry point that preprocesses data (via `_generate_and_preprocess_model_data`) then builds the PyMC model. Called by `fit()` and `load()`. Can also be called with no args if preprocessing was already done.
-- **Orthogonal polynomial basis**: `poly_fit` / `poly_predict` in `_variance.py` replicate R's `poly()` (QR on centered Vandermonde, three-term recurrence for prediction). Used only for `variance="covariate_dependent"` to build `X_sigma = [1, poly(distance, 3)]`.
+- **Orthogonal polynomial basis**: `poly_fit` / `poly_predict` in `variance.py` replicate R's `poly()` (QR on centered Vandermonde, three-term recurrence for prediction). Used only for `variance="covariate_dependent"` to build `X_sigma = [1, poly(distance, 3)]`.
 - **Masked-holdout CV**: see [docs/design_decisions.md](docs/design_decisions.md) for pm.Censored/pm.Normal architecture and the `holdout_pairs` / `extract_holdout_predictions` utilities.
 - `ruff` line length is 100; rule E501 (line too long) is ignored.
 - Tests live inside the package at `src/gdmbayes/tests/`.

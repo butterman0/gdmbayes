@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.spatial.distance import pdist
 
-from gdmbayes.distances._general import (
+from gdmbayes.distances.general import (
     DistanceCalculator,
     compute_distance_matrix,
     euclidean_distance,

@@ -281,13 +281,13 @@ Stan's NUTS implementation has more sophisticated adaptation:
 
 | File | Description |
 |------|-------------|
-| `src/gdmbayes/models/_variance.py` | Variance functions (homogeneous, covariate_dependent, polynomial) |
-| `src/gdmbayes/models/_spgdmm.py` | Model building, initvals, sampling, full spGDMM class |
-| `src/gdmbayes/models/_config.py` | ModelConfig, SamplerConfig dataclasses |
+| `src/gdmbayes/models/variance.py` | Variance functions (homogeneous, covariate_dependent, polynomial) |
+| `src/gdmbayes/models/spgdmm.py` | Model building, initvals, sampling, full spGDMM class |
+| `src/gdmbayes/models/config.py` | ModelConfig, SamplerConfig dataclasses |
 | `examples/panama_test_diagnostics.py` | Diagnostic test script that produced the output in Section 8 |
 | `benchmarks/white2024_table1.csv` | Ground-truth benchmarks from White et al. (2024) |
 | `examples/panama_example.py` | Panama dataset example (Bayesian CV) |
-| `src/gdmbayes/preprocessing/_preprocessor.py` | GDMPreprocessor (I-spline computation, pairwise features) |
+| `src/gdmbayes/preprocessing/preprocessor.py` | GDMPreprocessor (I-spline computation, pairwise features) |
 
 ---
 
@@ -472,7 +472,7 @@ These constraints are non-negotiable for reproducing White et al. (2024) results
 
 ## 10. Source Code
 
-### 10.1 Variance Functions (`src/gdmbayes/models/_variance.py`)
+### 10.1 Variance Functions (`src/gdmbayes/models/variance.py`)
 
 Complete file:
 
@@ -587,7 +587,7 @@ VARIANCE_FUNCTIONS: Dict[str, Callable] = {
 }
 ```
 
-### 10.2 `_compute_initvals()` (`src/gdmbayes/models/_spgdmm.py`, lines 520-578)
+### 10.2 `_compute_initvals()` (`src/gdmbayes/models/spgdmm.py`, lines 520-578)
 
 ```python
 def _compute_initvals(self):
@@ -651,7 +651,7 @@ def _compute_initvals(self):
     return initvals
 ```
 
-### 10.3 `_sample_model()` (`src/gdmbayes/models/_spgdmm.py`, lines 580-628)
+### 10.3 `_sample_model()` (`src/gdmbayes/models/spgdmm.py`, lines 580-628)
 
 ```python
 def _sample_model(self, **kwargs) -> az.InferenceData:
@@ -705,7 +705,7 @@ def _sample_model(self, **kwargs) -> az.InferenceData:
     return idata
 ```
 
-### 10.4 `build_model()` (`src/gdmbayes/models/_spgdmm.py`, lines 288-401)
+### 10.4 `build_model()` (`src/gdmbayes/models/spgdmm.py`, lines 288-401)
 
 ```python
 def build_model(
@@ -813,7 +813,7 @@ def build_model(
     self.model = model
 ```
 
-### 10.5 `_generate_and_preprocess_model_data()` — X_sigma construction (`src/gdmbayes/models/_spgdmm.py`, lines 179-287)
+### 10.5 `_generate_and_preprocess_model_data()` — X_sigma construction (`src/gdmbayes/models/spgdmm.py`, lines 179-287)
 
 ```python
 def _generate_and_preprocess_model_data(

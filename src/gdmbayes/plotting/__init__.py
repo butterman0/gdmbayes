@@ -1,6 +1,6 @@
 """Plotting utilities for spGDMM models."""
 
-from ._plots import (
+from .plots import (
     plot_isplines,
     plot_crps_comparison,
     summarise_sampling,
