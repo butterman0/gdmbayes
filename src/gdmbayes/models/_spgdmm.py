@@ -26,6 +26,46 @@ from ._spatial import SPATIAL_FUNCTIONS
 from ._variance import VARIANCE_FUNCTIONS
 
 
+def _poly_fit(x: np.ndarray, degree: int = 3):
+    """Fit orthogonal polynomials, replicating R's ``poly(x, degree)``.
+
+    Returns ``(Z, alpha, norm2)`` where *Z* is an ``(n, degree)`` matrix of
+    orthonormal columns (each with unit L2 norm), *alpha* and *norm2* are the
+    three-term recurrence coefficients needed by :func:`_poly_predict`.
+    """
+    x = np.asarray(x, dtype=float)
+    xbar = float(x.mean())
+    xc = x - xbar
+    # Vandermonde including degree-0 constant column
+    V = np.column_stack([xc ** k for k in range(degree + 1)])
+    Q, R = np.linalg.qr(V)
+    # R's poly() uses Q * diag(R), not plain Q, before renormalizing
+    Z = Q * np.diag(R)[None, :]
+    norm2 = (Z ** 2).sum(axis=0)  # length degree+1
+    alpha = ((xc[:, None] * Z ** 2).sum(axis=0) / norm2 + xbar)[:degree]
+    norm2 = np.concatenate([[1.0], norm2])  # length degree+2
+    Z = Z / np.sqrt(norm2[1:])  # unit L2 norm columns
+    Z = Z[:, 1:]  # drop intercept
+    return Z, alpha, norm2
+
+
+def _poly_predict(x_new: np.ndarray, alpha: np.ndarray, norm2: np.ndarray):
+    """Evaluate orthogonal polynomial basis on new data.
+
+    Uses the three-term recurrence with coefficients from :func:`_poly_fit`,
+    matching R's ``predict.poly()`` behaviour.
+    """
+    x_new = np.asarray(x_new, dtype=float)
+    degree = len(alpha)
+    Z = np.zeros((len(x_new), degree + 1))
+    Z[:, 0] = 1.0
+    Z[:, 1] = x_new - alpha[0]
+    for i in range(1, degree):
+        Z[:, i + 1] = ((x_new - alpha[i]) * Z[:, i]
+                        - (norm2[i + 1] / norm2[i]) * Z[:, i - 1])
+    Z = Z / np.sqrt(norm2[1:])
+    return Z[:, 1:]  # drop intercept
+
 
 class spGDMM(BaseEstimator):
     """
@@ -116,9 +156,8 @@ class spGDMM(BaseEstimator):
         self.log_y: np.ndarray | None = None        # log-transformed dissimilarities
         # Variance model state (covariate-dependent only)
         self._X_sigma: np.ndarray | None = None
-        self._d_mean: float = 0.0
-        self._d_std: float = 1.0
-        self._poly_transform: np.ndarray | None = None
+        self._poly_alpha: np.ndarray | None = None
+        self._poly_norm2: np.ndarray | None = None
         # Holdout mask for masked-holdout CV (White et al. 2024 strategy)
         self._holdout_mask: np.ndarray | None = None
 
@@ -175,38 +214,36 @@ class spGDMM(BaseEstimator):
         self.X_GDM = prep.transform(X)
         self.n_features_in_ = prep.n_predictors_
 
-        # Build QR-orthogonalised polynomial basis for covariate-dependent variance.
-        # Raw monomials [1, d_z, d_z², d_z³] have wildly different column
-        # variances, creating an anisotropic posterior that hampers NUTS.
-        # QR-orthogonalizing yields equal-norm, zero-correlation columns.
-        pw_distance = prep.pw_distance(prep.location_values_train_)
-        pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
-        self._d_mean = float(pw_dist_fit.mean())
-        self._d_std = float(pw_dist_fit.std()) + float(np.finfo(float).eps)
-
-        if prep.n_predictors_ > 0:
-            d_z = (pw_dist_fit - self._d_mean) / self._d_std
-            V = np.column_stack([
-                np.ones_like(d_z), d_z, d_z ** 2, d_z ** 3,
-            ])
-            Q, R = np.linalg.qr(V)
-            self._X_sigma = Q
-            self._poly_transform = np.linalg.inv(R)
+        # Build orthogonal polynomial basis for covariate-dependent variance.
+        # Matches White et al.'s R code: X_sigma = cbind(1, poly(vec_distance, 3))
+        # Only computed when variance="covariate_dependent".
+        variance_type = (
+            self._config.variance if isinstance(self._config.variance, str) else "custom"
+        )
+        if variance_type == "covariate_dependent":
+            pw_distance = prep.pw_distance(prep.location_values_train_)
+            pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
+            poly_cols, alpha, norm2 = _poly_fit(pw_dist_fit, degree=3)
+            self._poly_alpha = alpha
+            self._poly_norm2 = norm2
+            self._X_sigma = np.column_stack([np.ones(len(pw_dist_fit)), poly_cols])
         else:
             self._X_sigma = None
-            self._poly_transform = None
+            self._poly_alpha = None
+            self._poly_norm2 = None
 
     def _build_sigma_basis(self, pw_distance: np.ndarray) -> np.ndarray:
-        """Build QR-orthogonalised polynomial basis for covariate-dependent variance.
+        """Build orthogonal polynomial basis for covariate-dependent variance.
 
-        Applies the same standardization and QR transform (``_poly_transform``)
-        computed at training time to a new vector of pairwise distances.
+        Applies the same orthogonal polynomial transform (matching R's
+        ``poly()``) computed at training time to a new vector of pairwise
+        distances, then prepends a column of ones (matching White et al.'s
+        ``cbind(1, poly(vec_distance, 3))``).
         """
         dist_mesh = self.preprocessor.dist_mesh_
         pw_dist = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
-        d_z = (pw_dist - self._d_mean) / self._d_std
-        V = np.column_stack([np.ones_like(d_z), d_z, d_z ** 2, d_z ** 3])
-        return V @ self._poly_transform
+        poly_cols = _poly_predict(pw_dist, self._poly_alpha, self._poly_norm2)
+        return np.column_stack([np.ones(len(pw_dist)), poly_cols])
 
     def build_model(
         self,
