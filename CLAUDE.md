@@ -65,7 +65,7 @@ GDMPreprocessor (preprocessing/_preprocessor.py)  ← sklearn transformer
 - **nutpie initvals**: nutpie 0.16.x ignores `initvals` passed via `pm.sample()`. The workaround is `model.set_initval(rv, value)` which modifies PyMC's `rvs_to_initial_values` dict before nutpie compiles the model. See `_apply_initvals()`.
 - **MCMC initialisation**: `_compute_initvals()` runs a multi-stage BFGS matching White et al.: (1) squared-error for beta_0/beta, (1b) joint re-optimisation of [beta_0, log_beta, psi] including the spatial effect term, (2) profile Gaussian NLL for beta_sigma given fixed mu+spatial. Psi init is critical — without it NUTS starts with zero spatial contribution and struggles to discover GP structure.
 - **`build_model(X, y)`**: Single entry point that preprocesses data (via `_generate_and_preprocess_model_data`) then builds the PyMC model. Called by `fit()` and `load()`. Can also be called with no args if preprocessing was already done.
-- **QR poly_transform**: `self._poly_transform` (R⁻¹ from QR decomposition) converts raw monomials to an orthogonal polynomial basis. Both `build_model()` (training) and `_data_setter()` (prediction) must apply the same transform — if one changes, update the other.
+- **Orthogonal polynomial basis**: `poly_fit` / `poly_predict` in `_variance.py` replicate R's `poly()` (QR on centered Vandermonde, three-term recurrence for prediction). Used only for `variance="covariate_dependent"` to build `X_sigma = [1, poly(distance, 3)]`.
 - **Masked-holdout CV**: see [docs/design_decisions.md](docs/design_decisions.md) for pm.Censored/pm.Normal architecture and the `holdout_pairs` / `extract_holdout_predictions` utilities.
 - `ruff` line length is 100; rule E501 (line too long) is ignored.
 - Tests live inside the package at `src/gdmbayes/tests/`.
@@ -78,8 +78,12 @@ For fair comparison against White et al., all validation runs **must use identic
 - `alpha_importance=False` (White et al. uses LogNormal priors, no Dirichlet/alpha structure)
 - `LogNormal(mu=0, sigma=10)` prior on beta coefficients — **never change priors to work around sampler issues**
 - `Normal(mu=0, sigma=10)` prior on beta_sigma coefficients
-- 10-fold site-level CV for all datasets
+- 10-fold site-level CV for all datasets (final results)
 - **Never run MCMC on the login node.** Always submit via `sbatch`.
+
+### Quick smoke tests
+
+For fast iteration (testing code changes, not final results), run **3 folds of the 10-fold split** (`--n_folds 3`). This uses the same 90/10 train/test ratio as the full run (~12 test sites across 3 folds for Panama) and produces reasonably stable metric estimates at 30% of the cost. Use the same `--seed 42` so fold assignments match the eventual full 10-fold run.
 
 > **Details:** dataset table, experiment tracking, SLURM scripts in [docs/validation.md](docs/validation.md)
 
