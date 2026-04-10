@@ -87,7 +87,7 @@ def crps_samples(y_true, samples_da):
 # 1. Frequentist GDM
 # ---------------------------------------------------------------------------
 if args.mode in ("freq", "both"):
-    from gdmbayes import GDM, PreprocessorConfig
+    from gdmbayes import GDM
 
     print("=" * 60)
     print("FREQUENTIST GDM — BCI")
@@ -97,12 +97,6 @@ if args.mode in ("freq", "both"):
         geo=True,
         splines=3,
         knots=2,
-        preprocessor_config=PreprocessorConfig(
-            deg=3,
-            knots=2,
-            mesh_choice="percentile",
-            distance_measure="euclidean",
-        ),
     )
     gdm.fit(X, y)
     y_pred = gdm.predict(X)
@@ -129,7 +123,7 @@ if args.mode in ("freq", "both"):
 # 2. Bayesian spGDMM
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
-    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig
+    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, GDMPreprocessor
 
     print("=" * 60)
     print(f"BAYESIAN spGDMM — BCI  (spatial_effect={args.spatial!r})")
@@ -142,7 +136,7 @@ if args.mode in ("bayes", "both"):
         model = spGDMM.load(out_nc)
     else:
         model = spGDMM(
-            preprocessor=PreprocessorConfig(
+            preprocessor=GDMPreprocessor(
                 deg=3,
                 knots=2,
                 mesh_choice="percentile",

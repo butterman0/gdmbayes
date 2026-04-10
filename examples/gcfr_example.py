@@ -140,7 +140,7 @@ def crps_samples(y_true, samples_da):
 # 1. Frequentist GDM
 # ---------------------------------------------------------------------------
 if args.mode in ("freq", "both"):
-    from gdmbayes import GDM, PreprocessorConfig, site_pairs
+    from gdmbayes import GDM, site_pairs
     from sklearn.model_selection import KFold
 
     print("=" * 60)
@@ -152,12 +152,6 @@ if args.mode in ("freq", "both"):
             geo=True,
             splines=3,
             knots=2,  # White et al. used knots=2 for GCFR (df = deg + knots = 5)
-            preprocessor_config=PreprocessorConfig(
-                deg=3,
-                knots=2,
-                mesh_choice="percentile",
-                distance_measure="geodesic",
-            ),
         )
 
     gdm = make_gdm()
@@ -210,7 +204,7 @@ if args.mode in ("freq", "both"):
 # 2. Bayesian spGDMM — 8 model configurations × 5-fold CV
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
-    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs
+    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, GDMPreprocessor, site_pairs
     from sklearn.model_selection import KFold
 
     # Model grid matching White et al. (2024) Table 1 (Models 1-9)
@@ -245,7 +239,7 @@ if args.mode in ("bayes", "both"):
 
         def make_spgdmm():
             return spGDMM(
-                preprocessor=PreprocessorConfig(
+                preprocessor=GDMPreprocessor(
                     deg=3,
                     knots=2,  # White et al. used knots=2 for GCFR (df=5)
                     mesh_choice="percentile",

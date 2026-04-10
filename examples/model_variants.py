@@ -6,7 +6,7 @@ effects using the unified string/callable API in ModelConfig.
 """
 
 import numpy as np
-from gdmbayes import ModelConfig, spGDMM, PreprocessorConfig
+from gdmbayes import ModelConfig, spGDMM
 
 # -----------------------------------------------------
 # 1. Built-in variance and spatial effect strings

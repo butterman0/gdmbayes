@@ -133,7 +133,7 @@ def crps_samples(y_true, samples_da):
 if args.mode in ("freq", "both"):
     from sklearn.model_selection import KFold
 
-    from gdmbayes import GDM, PreprocessorConfig, site_pairs
+    from gdmbayes import GDM, site_pairs
 
     print("=" * 60)
     print("FREQUENTIST GDM — Panama")
@@ -144,12 +144,6 @@ if args.mode in ("freq", "both"):
             geo=True,
             splines=3,
             knots=1,  # White et al. used knots=1 (df = deg + knots = 4)
-            preprocessor_config=PreprocessorConfig(
-                deg=3,
-                knots=1,
-                mesh_choice="percentile",
-                distance_measure="euclidean",
-            ),
         )
 
     gdm = make_gdm()
@@ -204,7 +198,7 @@ if args.mode in ("freq", "both"):
 if args.mode in ("bayes", "both"):
     from sklearn.model_selection import KFold
 
-    from gdmbayes import ModelConfig, PreprocessorConfig, SamplerConfig, site_pairs, spGDMM
+    from gdmbayes import ModelConfig, GDMPreprocessor, SamplerConfig, site_pairs, spGDMM
 
     # Model grid matching White et al. (2024) Table 1 (Models 1-9)
     CONFIGS = [
@@ -237,7 +231,7 @@ if args.mode in ("bayes", "both"):
 
         def make_spgdmm():
             return spGDMM(
-                preprocessor=PreprocessorConfig(
+                preprocessor=GDMPreprocessor(
                     deg=3,
                     knots=1,
                     mesh_choice="percentile",

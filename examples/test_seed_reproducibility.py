@@ -62,11 +62,11 @@ import warnings
 warnings.filterwarnings("ignore")
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig
+from gdmbayes import spGDMM, ModelConfig, SamplerConfig, GDMPreprocessor
 
 def fit_model(seed):
     model = spGDMM(
-        preprocessor=PreprocessorConfig(deg=3, knots=1, distance_measure="euclidean"),
+        preprocessor=GDMPreprocessor(deg=3, knots=1, distance_measure="euclidean"),
         model_config=ModelConfig(variance="homogeneous", spatial_effect="none", alpha_importance=False),
         sampler_config=SamplerConfig(draws=200, tune=200, chains=2, nuts_sampler="nutpie",
                                      progressbar=False, random_seed=seed),

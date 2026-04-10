@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 
-from gdmbayes import GDM, spGDMM, ModelConfig, PreprocessorConfig, SamplerConfig, summarise_sampling
+from gdmbayes import GDM, spGDMM, ModelConfig, GDMPreprocessor, SamplerConfig, summarise_sampling
 
 # -----------------------------------------------------------------------
 # 1. Generate synthetic data
@@ -63,7 +63,7 @@ print("=" * 60)
 sampler_cfg = SamplerConfig(draws=100, tune=100, chains=2, nuts_sampler="pymc", progressbar=True)
 
 model = spGDMM(
-    preprocessor=PreprocessorConfig(deg=3, knots=2),
+    preprocessor=GDMPreprocessor(deg=3, knots=2),
     model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
     sampler_config=sampler_cfg,
 )
