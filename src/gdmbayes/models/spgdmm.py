@@ -117,8 +117,8 @@ class spGDMM(BaseEstimator):
         self._X_sigma: np.ndarray | None = None
         self._poly_alpha: np.ndarray | None = None
         self._poly_norm2: np.ndarray | None = None
-        # Holdout mask for masked-holdout CV (White et al. 2024 strategy)
-        self._holdout_mask: np.ndarray | None = None
+        # GP object — stored after build_model() for use in predict() via gp.conditional()
+        self.gp_: pm.gp.Latent | None = None
 
     def __sklearn_is_fitted__(self) -> bool:
         """Return True only after a successful fit (idata with posterior exists)."""
@@ -142,35 +142,22 @@ class spGDMM(BaseEstimator):
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        holdout_mask: np.ndarray | None = None,
-        train_X: "pd.DataFrame | None" = None,
     ) -> None:
-        """
-        Preprocess model data before fitting.
+        """Preprocess model data before fitting.
 
-        Delegates to ``self.preprocessor.fit()`` to compute spline meshes
-        (unless the preprocessor is already fitted), then builds the
-        pairwise feature matrix and variance model state.
+        Fits spline meshes from ``X`` (training sites only), then builds the
+        pairwise feature matrix and variance model state.  For out-of-sample
+        prediction at new sites, the GP is conditioned on the training posterior
+        via ``gp.conditional()`` inside ``predict()``.
 
         Parameters
         ----------
         X : pd.DataFrame
-            Site-level data for ALL sites (used for GP coverage and transform).
+            Training site-level data with columns [xc, yc, time_idx, predictor1, ...].
         y : pd.Series
-            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
-        holdout_mask : np.ndarray of bool or None, optional
-            Boolean mask (length n_pairs, True = held-out pair).  When set,
-            the model is built on ALL sites but the likelihood is split:
-            observed pairs get the Censored likelihood, held-out pairs become
-            free Normal RVs.
-        train_X : pd.DataFrame or None, optional
-            Site-level data for training sites ONLY.  When provided, spline
-            meshes, distance mesh, and GP length scale are fitted from these
-            sites, preventing test-site feature leakage.  The GP spatial
-            effect still covers all sites in ``X`` (via ``location_values_train_``).
-            If None, meshes are fitted from all sites in ``X`` (original behaviour).
+            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2)
+            for training-site pairs only.
         """
-        self._holdout_mask = holdout_mask
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
 
@@ -182,52 +169,29 @@ class spGDMM(BaseEstimator):
         if hasattr(X, "columns"):
             self.feature_names_in_ = np.array(X.columns)
 
-        # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
-        # When train_X is provided, fit on training sites only to avoid leakage.
+        # Fit the preprocessor on training sites only (skips refitting on load path).
         try:
             check_is_fitted(self.preprocessor)
         except NotFittedError:
-            self.preprocessor.fit(train_X if train_X is not None else X)
+            self.preprocessor.fit(X)
         prep = self.preprocessor
 
-        # For CV: override location_values_train_ to ALL sites so the GP prior
-        # covers test-site locations too (the whole point of masked-holdout CV).
-        # Mesh knots and length scale remain from train_X only.
-        if train_X is not None:
-            prep.location_values_train_ = (
-                X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
-            )
-
-        # Delegate pairwise I-spline diffs + distance splines to preprocessor.
+        # Pairwise I-spline diffs + distance splines for train-train pairs.
         self.X_GDM_ = prep.transform(X)
         self.n_features_in_ = prep.n_predictors_
 
         # Build orthogonal polynomial basis for covariate-dependent variance.
         # Matches White et al.'s R code: X_sigma = cbind(1, poly(vec_distance, 3))
-        # Only computed when variance="covariate_dependent".
+        # Fitted from training-pair distances only; applied to test pairs via
+        # _build_sigma_basis() in _predict_gp_conditional().
         if self._variance_type == "covariate_dependent":
-            if train_X is not None:
-                # Fit basis on train-pair distances only (no leakage).
-                train_locs = (
-                    train_X.iloc[:, :2].values
-                    if isinstance(train_X, pd.DataFrame) else train_X[:, :2]
-                )
-                pw_dist_for_fit = prep.pw_distance(train_locs)
-            else:
-                pw_dist_for_fit = prep.pw_distance(prep.location_values_train_)
-
-            pw_dist_fit = np.clip(pw_dist_for_fit, prep.dist_mesh_[0], prep.dist_mesh_[-1])
-            _, alpha, norm2 = poly_fit(pw_dist_fit, degree=3)
+            pw_dist = prep.pw_distance(prep.location_values_train_)
+            pw_dist_clipped = np.clip(pw_dist, prep.dist_mesh_[0], prep.dist_mesh_[-1])
+            _, alpha, norm2 = poly_fit(pw_dist_clipped, degree=3)
             self._poly_alpha = alpha
             self._poly_norm2 = norm2
-
-            # Compute X_sigma for ALL pairs (train + holdout) using the
-            # train-fitted basis via poly_predict.
-            all_locs = prep.location_values_train_  # already updated to all sites if train_X set
-            pw_dist_all = prep.pw_distance(all_locs)
-            pw_dist_all_clipped = np.clip(pw_dist_all, prep.dist_mesh_[0], prep.dist_mesh_[-1])
-            poly_cols_all = poly_predict(pw_dist_all_clipped, alpha, norm2)
-            self._X_sigma = np.column_stack([np.ones(len(pw_dist_all)), poly_cols_all])
+            poly_cols = poly_predict(pw_dist_clipped, alpha, norm2)
+            self._X_sigma = np.column_stack([np.ones(len(pw_dist)), poly_cols])
         else:
             self._X_sigma = None
             self._poly_alpha = None
@@ -250,35 +214,25 @@ class spGDMM(BaseEstimator):
         self,
         X: "pd.DataFrame | None" = None,
         y: "pd.Series | np.ndarray | None" = None,
-        holdout_mask: "np.ndarray | None" = None,
-        train_X: "pd.DataFrame | None" = None,
     ) -> None:
         """Preprocess data (if provided) and build the PyMC model.
 
         Parameters
         ----------
         X : pd.DataFrame, optional
-            Site-level data. If provided together with ``y``, preprocessing
+            Training site-level data. If provided together with ``y``, preprocessing
             is run first via ``_generate_and_preprocess_model_data``.
             If omitted, assumes preprocessing was already done (e.g. on
             the load path).
         y : array-like, optional
-            Pairwise dissimilarities. Required when ``X`` is provided.
-        holdout_mask : np.ndarray of bool, optional
-            Boolean mask for masked-holdout CV (True = held-out pair).
-        train_X : pd.DataFrame or None, optional
-            Site-level data for training sites only.  When provided, spline
-            meshes, distance mesh, and GP length scale are fitted from these
-            sites only (no test-site leakage).  The GP still covers all sites
-            in ``X``.  Passed through to ``_generate_and_preprocess_model_data``.
+            Pairwise dissimilarities (training pairs only). Required when ``X`` is provided.
         """
+        self.gp_ = None  # reset; set below if spatial effect is active
         if X is not None:
             if y is None:
                 raise ValueError("y is required when X is provided.")
             y_array = np.asarray(y, dtype=float)
-            self._generate_and_preprocess_model_data(
-                X, y_array, holdout_mask=holdout_mask, train_X=train_X
-            )
+            self._generate_and_preprocess_model_data(X, y_array)
         elif self.X_GDM_ is None:
             raise ValueError("No preprocessed data. Pass X and y, or call fit().")
 
@@ -369,9 +323,10 @@ class spGDMM(BaseEstimator):
                 cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale / 2)
                 gp = pm.gp.Latent(cov_func=cov)
                 psi = gp.prior("psi", X=gp_coords, dims=("site_train",))
+                self.gp_ = gp  # stored for predict() via gp.conditional()
 
-                # Use pm.Data so indices can be updated via pm.set_data during prediction
-                # when X_pred has a different number of sites than X_train.
+                # Use pm.Data so indices can be updated via pm.set_data when
+                # predict() is called on the same number of sites as training.
                 row_ind, col_ind = np.triu_indices(n_sites_train, k=1)
                 row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
                 col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
@@ -383,34 +338,12 @@ class spGDMM(BaseEstimator):
                 )
                 mu += spatial_fn(psi, row_indices, col_indices)
 
-            if self._holdout_mask is not None:
-                obs_idx = np.where(~self._holdout_mask)[0]
-                hold_idx = np.where(self._holdout_mask)[0]
-
-                if sigma2.ndim > 0:
-                    sigma_obs = pm.math.sqrt(sigma2[obs_idx])
-                    sigma_hold = pm.math.sqrt(sigma2[hold_idx])
-                else:
-                    sigma_obs = sigma_hold = pm.math.sqrt(sigma2)
-
-                pm.Censored(
-                    "log_y",
-                    pm.Normal.dist(mu=mu[obs_idx], sigma=sigma_obs),
-                    lower=None, upper=0,
-                    observed=log_y_values[obs_idx],
-                )
-                pm.Normal(
-                    "log_y_holdout",
-                    mu=mu[hold_idx], sigma=sigma_hold,
-                    shape=len(hold_idx),
-                )
-            else:
-                pm.Censored(
-                    "log_y",
-                    pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
-                    lower=None, upper=0,
-                    observed=log_y_data,
-                )
+            pm.Censored(
+                "log_y",
+                pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
+                lower=None, upper=0,
+                observed=log_y_data,
+            )
 
         self.model_ = model
 
@@ -421,11 +354,29 @@ class spGDMM(BaseEstimator):
     ) -> None:
         """Update mutable data containers in the existing model for prediction.
 
-        For spatial models, also updates ``row_indices`` and ``col_indices`` to
-        match the prediction sites so the spatial effect term has the correct shape.
+        When predicting at new sites (different count from training), and a spatial
+        effect is active, delegates to ``_predict_gp_conditional()`` which uses
+        ``gp.conditional()`` (GP kriging) to obtain ``psi`` at new locations.
+        Result is stored in ``self._gp_pred_result`` for
+        ``sample_posterior_predictive()`` to consume.
+
+        For same-count prediction (e.g. full-data posterior predictive), updates
+        ``pm.Data`` containers in place via ``pm.set_data()``.
         """
         if self.idata_ is None or "posterior" not in self.idata_:
             raise ValueError("Model must be fitted before predicting.")
+
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X)
+
+        n_pred_sites = len(X)
+        n_train_sites = self.preprocessor.location_values_train_.shape[0]
+
+        # Route to GP conditional for new-site prediction when a spatial effect is active.
+        if self._config.spatial_effect != "none" and n_pred_sites != n_train_sites:
+            self._predict_gp_conditional(X)
+            return
+
         X_transformed = self.preprocessor.transform(X)
         n_pred_pairs = X_transformed.shape[0]
 
@@ -439,9 +390,7 @@ class spGDMM(BaseEstimator):
         # For covariate_dependent variance: update X_sigma_data with pairwise distances
         # for the prediction sites so its shape matches X_data.
         if self._X_sigma is not None:
-            pred_locations = (
-                X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
-            )
+            pred_locations = X.iloc[:, :2].values
             pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
             set_data_dict["X_sigma_data"] = self._build_sigma_basis(pw_dist_pred)
 
@@ -449,7 +398,6 @@ class spGDMM(BaseEstimator):
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
         # via the quadratic formula: n_pairs = n*(n-1)/2.
         if self._config.spatial_effect != "none":
-            n_pred_sites = round((1 + (1 + 8 * n_pred_pairs) ** 0.5) / 2)
             pred_row_ind, pred_col_ind = np.triu_indices(n_pred_sites, k=1)
             set_data_dict["row_indices"] = pred_row_ind.astype(np.int32)
             set_data_dict["col_indices"] = pred_col_ind.astype(np.int32)
@@ -459,6 +407,115 @@ class spGDMM(BaseEstimator):
                 set_data_dict,
                 coords={"obs_pair": np.arange(n_pred_pairs)},
             )
+
+    def _predict_gp_conditional(self, X_pred: pd.DataFrame) -> None:
+        """Build and sample GP conditional predictions for new (test) sites.
+
+        Called by ``_data_setter()`` when the number of prediction sites differs
+        from the number of training sites and a spatial effect is active.
+
+        Strategy: sample ``psi_pred`` from the GP conditional via PyMC (so that
+        the conditioning on training-site posterior is handled correctly), then
+        assemble the full linear predictor and draw posterior predictive samples
+        in NumPy.  This avoids pytensor batch-dimension shape conflicts that arise
+        when mixing a batched GP conditional with other model RVs inside
+        ``pm.sample_posterior_predictive``.
+
+        Result is stored in ``self._gp_pred_result`` (ndarray, shape
+        ``(n_chains, n_draws, n_pred_pairs)``) for ``sample_posterior_predictive()``
+        to consume.
+        """
+        prep = self.preprocessor
+        n_pred = len(X_pred)
+        n_pred_pairs = n_pred * (n_pred - 1) // 2
+        row_p, col_p = np.triu_indices(n_pred, k=1)
+
+        # Feature matrix for pred-pred pairs (uses already-fitted meshes).
+        X_pred_features = prep.transform(X_pred)   # (n_pred_pairs, J)
+
+        # GP coordinates in km (matching training convention).
+        pred_coords = X_pred.iloc[:, :2].values / 1000.0
+
+        # Variance basis for covariate_dependent.
+        X_sigma_pred = None
+        if self._variance_type == "covariate_dependent" and self._poly_alpha is not None:
+            pw_dist_pred = prep.pw_distance(X_pred.iloc[:, :2].values)
+            X_sigma_pred = self._build_sigma_basis(pw_dist_pred)   # (n_pred_pairs, 4)
+
+        # Unique suffix — prevents name clashes across repeated predict() calls.
+        self._pred_call_count = getattr(self, "_pred_call_count", 0) + 1
+        sfx = self._pred_call_count
+        psi_name = f"psi_pred_{sfx}"
+
+        # --- Step 1: sample psi_pred via PyMC GP conditional ---
+        # For each posterior sample (psi_train_s, length_scale_s, sig2_psi_s), PyMC
+        # draws psi_pred_s from the conditional MvNormal.  This correctly propagates
+        # all GP hyperparameter uncertainty to the prediction locations.
+        with self.model_:
+            self.gp_.conditional(psi_name, pred_coords)
+            psi_idata = pm.sample_posterior_predictive(
+                self.idata_, var_names=[psi_name], progressbar=False
+            )
+
+        # psi_samples: (chains, draws, n_pred_sites)
+        psi_samples = psi_idata.posterior_predictive[psi_name].values
+        n_chains, n_draws = psi_samples.shape[:2]
+        n_samples = n_chains * n_draws
+        psi_flat = psi_samples.reshape(n_samples, n_pred)   # (n_samples, n_pred_sites)
+
+        # --- Step 2: extract posterior parameter samples from idata ---
+        post = self.idata_.posterior
+        beta_0 = post["beta_0"].values.reshape(n_samples)           # (n_samples,)
+        beta   = post["beta"].values.reshape(n_samples, -1)         # (n_samples, J)
+
+        # --- Step 3: linear predictor (vectorised NumPy) ---
+        # env + intercept: (n_samples, n_pred_pairs)
+        mu = beta_0[:, None] + (beta @ X_pred_features.T)
+
+        # spatial contribution
+        spatial_type = (
+            self._config.spatial_effect
+            if isinstance(self._config.spatial_effect, str)
+            else None
+        )
+        if spatial_type == "squared_diff":
+            diff = psi_flat[:, row_p] - psi_flat[:, col_p]   # (n_samples, n_pred_pairs)
+            mu = mu + diff ** 2
+        elif spatial_type == "abs_diff":
+            diff = psi_flat[:, row_p] - psi_flat[:, col_p]
+            mu = mu + np.abs(diff)
+        elif callable(self._config.spatial_effect):
+            # Custom callable: apply per sample (rare path)
+            spatial_contrib = np.stack([
+                np.asarray(self._config.spatial_effect(psi_flat[s], row_p, col_p))
+                for s in range(n_samples)
+            ])
+            mu = mu + spatial_contrib
+
+        # --- Step 4: variance ---
+        if self._variance_type == "homogeneous":
+            sigma2 = post["sigma2"].values.reshape(n_samples)[:, None]     # (n_samples, 1)
+        elif self._variance_type == "covariate_dependent" and X_sigma_pred is not None:
+            bs = post["beta_sigma"].values.reshape(n_samples, -1)           # (n_samples, 4)
+            log_s2 = np.clip(X_sigma_pred @ bs.T, -20, 20).T               # (n_samples, n_pred_pairs)
+            sigma2 = np.exp(log_s2)
+        elif self._variance_type == "polynomial":
+            bs = post["beta_sigma"].values.reshape(n_samples, -1)           # (n_samples, 4)
+            log_s2 = np.clip(
+                bs[:, 0:1] + bs[:, 1:2] * mu + bs[:, 2:3] * mu ** 2 + bs[:, 3:4] * mu ** 3,
+                -20, 20,
+            )
+            sigma2 = np.exp(log_s2)                                         # (n_samples, n_pred_pairs)
+        else:
+            sigma2 = post["sigma2"].values.reshape(n_samples)[:, None]
+
+        # --- Step 5: draw posterior predictive samples ---
+        seed = self.sampler_config.get("random_seed", None) if hasattr(self, "sampler_config") else None
+        rng = np.random.default_rng(seed)
+        log_y_samples = rng.normal(mu, np.sqrt(sigma2))   # (n_samples, n_pred_pairs)
+
+        # Store as (chains, draws, pairs) for consistent handling in sample_posterior_predictive.
+        self._gp_pred_result = log_y_samples.reshape(n_chains, n_draws, n_pred_pairs)
 
     def _save_input_params(self, idata: az.InferenceData) -> None:
         """Persist transformation state (meshes, coordinates) in idata.constant_data.
@@ -511,22 +568,12 @@ class spGDMM(BaseEstimator):
         """
         from scipy.optimize import minimize
 
-        # When using holdout CV, compute initvals from observed pairs only
-        if self._holdout_mask is not None:
-            obs = ~self._holdout_mask
-            X_GDM = self.X_GDM_[obs]
-            log_y = self.log_y_[obs]
-        else:
-            X_GDM = self.X_GDM_
-            log_y = self.log_y_
+        X_GDM = self.X_GDM_
+        log_y = self.log_y_
         p = X_GDM.shape[1]
 
-        # Pair indices (for spatial init), filtered to observed pairs if holdout
         n_train = self.preprocessor.location_values_train_.shape[0]
         row_ind, col_ind = np.triu_indices(n_train, k=1)
-        if self._holdout_mask is not None:
-            row_ind = row_ind[~self._holdout_mask]
-            col_ind = col_ind[~self._holdout_mask]
 
         # Resolve the spatial function once (works on both numpy and pytensor
         # since the registered functions use only generic ops like abs() and **).
@@ -609,8 +656,6 @@ class spGDMM(BaseEstimator):
 
             if self._variance_type == "covariate_dependent" and self._X_sigma is not None:
                 X_sig = self._X_sigma
-                if self._holdout_mask is not None:
-                    X_sig = X_sig[~self._holdout_mask]
                 res_sigma = minimize(
                     _profile_nll, np.zeros(n_sigma), args=(lambda bs: X_sig @ bs,),
                     method="BFGS",
@@ -684,13 +729,8 @@ class spGDMM(BaseEstimator):
             if sampler_args.get("nuts_sampler", "pymc") != "nutpie":
                 sampler_args["initvals"] = initvals
             idata = pm.sample(**sampler_args)
-
-            # Skip prior/posterior predictive when using holdout CV
-            # (unnecessary for CV metrics and posterior predictive on
-            # the Censored term is slow)
-            if self._holdout_mask is None:
-                idata.extend(pm.sample_prior_predictive(), join="right")
-                idata.extend(pm.sample_posterior_predictive(idata), join="right")
+            idata.extend(pm.sample_prior_predictive(), join="right")
+            idata.extend(pm.sample_posterior_predictive(idata), join="right")
 
         idata = self._set_idata_attrs(idata)
         return idata
@@ -713,32 +753,23 @@ class spGDMM(BaseEstimator):
         self,
         X: pd.DataFrame,
         y: pd.Series | None = None,
-        holdout_mask: np.ndarray | None = None,
-        train_X: "pd.DataFrame | None" = None,
         progressbar: bool = True,
         random_seed=None,
         **kwargs,
     ) -> "spGDMM":
         """
-        Fit the model using the provided data.
+        Fit the model on training data.
 
         Parameters
         ----------
         X : pd.DataFrame
-            Site-level data with columns [xc, yc, time_idx, predictor1, ...]
+            Training site-level data with columns [xc, yc, time_idx, predictor1, ...].
+            Pass only training sites; for cross-validation, subset with
+            ``X.iloc[train_sites].reset_index(drop=True)``.
         y : array-like
-            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
-        holdout_mask : np.ndarray of bool or None, optional
-            Boolean mask (length n_pairs, True = held-out pair).  When set,
-            the model is built on ALL sites but the likelihood is split into
-            observed (Censored) and held-out (free Normal) terms.  Use
-            ``extract_holdout_predictions()`` to retrieve posterior samples for
-            the held-out pairs.
-        train_X : pd.DataFrame or None, optional
-            Site-level data for training sites only.  When provided, spline
-            meshes, distance mesh, and GP length scale are fitted from these
-            sites, preventing test-site feature leakage.  The GP spatial
-            effect still covers all sites in ``X``.
+            Pairwise Bray-Curtis dissimilarities for training-site pairs
+            (length n_train*(n_train-1)//2).  Use ``site_pairs(n_sites, train_sites)``
+            to extract the correct subset from the full pairwise vector.
         progressbar : bool
             Whether to display a progress bar during sampling.
         random_seed : int or None
@@ -750,11 +781,13 @@ class spGDMM(BaseEstimator):
         -------
         self : spGDMM
             The fitted estimator. Access inference data via ``self.idata_``.
+            Call ``predict(X_test)`` for out-of-sample predictions; the GP
+            spatial effect is conditioned on the training posterior via kriging.
         """
         if y is None:
             raise ValueError(
                 "y is required for fit(). Pass pairwise dissimilarities "
-                "(length n_sites*(n_sites-1)//2)."
+                "(length n_train*(n_train-1)//2)."
             )
 
         sampler_args: dict = {**self.sampler_config, "progressbar": progressbar, **kwargs}
@@ -763,7 +796,7 @@ class spGDMM(BaseEstimator):
 
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
-        self.build_model(X, y_series.values, holdout_mask=holdout_mask, train_X=train_X)
+        self.build_model(X, y_series.values)
 
         self.idata_ = self._sample_model(sampler_args=sampler_args)
 
@@ -923,8 +956,26 @@ class spGDMM(BaseEstimator):
     def sample_posterior_predictive(
         self, X_pred, extend_idata, combined, predictions=True, **kwargs
     ):
-        """Sample from the model's posterior predictive distribution."""
+        """Sample from the model's posterior predictive distribution.
+
+        When predicting at new sites (n_pred != n_train) with a spatial effect,
+        ``_data_setter`` triggers GP conditional (kriging) and stores the result
+        in ``self._gp_pred_result``.  This method consumes that result and returns
+        a Dataset with the standard ``output_var`` key so that ``predict()`` and
+        ``predict_posterior()`` work transparently.
+        """
         self._data_setter(X_pred)
+
+        # GP conditional path — result was computed inside _data_setter as a numpy array.
+        if hasattr(self, "_gp_pred_result"):
+            log_y_arr = self._gp_pred_result   # (n_chains, n_draws, n_pred_pairs)
+            del self._gp_pred_result
+            raw = xr.DataArray(log_y_arr, dims=["chain", "draw", "obs_dim_0"])
+            if combined:
+                raw = raw.stack(sample=("chain", "draw"))
+            return xr.Dataset({self.output_var: raw})
+
+        # Standard path — pm.set_data was used; sample from existing model.
         with self.model_:
             post_pred = pm.sample_posterior_predictive(
                 self.idata_, predictions=predictions, **kwargs
@@ -962,32 +1013,6 @@ class spGDMM(BaseEstimator):
                 else:
                     self.idata_ = prior_pred
         return az.extract(prior_pred, "prior_predictive", combined=combined)
-
-    def extract_holdout_predictions(self) -> dict:
-        """Extract posterior predictions for held-out pairs.
-
-        Returns a dict with keys:
-
-        - ``hold_idx``: indices into the full pairwise vector for held-out pairs
-        - ``y_pred_mean``: posterior mean of dissimilarity (on [0, 1] scale)
-        - ``y_pred_samples``: full posterior samples, shape (n_hold, n_samples)
-
-        The transform ``Z = min(1, exp(log_V))`` matches White et al. (2024).
-        """
-        if self._holdout_mask is None:
-            raise RuntimeError("No holdout mask was set during fit().")
-        if self.idata_ is None or "posterior" not in self.idata_:
-            raise RuntimeError("Model must be fitted before extracting predictions.")
-
-        log_y_hold = self.idata_.posterior["log_y_holdout"]
-        # (chain, draw, n_hold) → (n_hold, n_samples)
-        samples = log_y_hold.stack(sample=("chain", "draw")).values
-        y_samples = np.minimum(1.0, np.exp(samples))
-        return {
-            "hold_idx": np.where(self._holdout_mask)[0],
-            "y_pred_mean": y_samples.mean(axis=1),
-            "y_pred_samples": y_samples,
-        }
 
     def gdm_transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Transform site-level predictors to the biological importance scale.

@@ -8,17 +8,17 @@ import pandas as pd
 import pytest
 from scipy.spatial.distance import pdist
 from sklearn.base import clone
-from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
+from sklearn.utils.validation import check_is_fitted
+
 from gdmbayes import (
-    spGDMM,
     GDM,
     ModelConfig,
-    SamplerConfig,
     PreprocessorConfig,
-    GDMPreprocessor,
-    site_pairs,
+    SamplerConfig,
     holdout_pairs,
+    site_pairs,
+    spGDMM,
 )
 
 
@@ -543,23 +543,7 @@ class TestSpGDMMSklearnInterface:
 
 
 class TestHoldoutCV:
-    """Tests for masked-holdout CV (White et al. 2024 strategy)."""
-
-    @pytest.fixture
-    def sample_data(self):
-        """Generate sample data for holdout tests."""
-        np.random.seed(42)
-        n_sites = 20
-        X = pd.DataFrame({
-            "xc": np.random.uniform(0, 100, n_sites),
-            "yc": np.random.uniform(0, 100, n_sites),
-            "time_idx": np.zeros(n_sites, dtype=int),
-            "temp": np.random.uniform(5, 20, n_sites),
-            "depth": np.random.uniform(0, 200, n_sites),
-        })
-        biomass = np.random.exponential(1, (n_sites, 10))
-        y = np.clip(pdist(biomass, "braycurtis"), 1e-8, None)
-        return X, y
+    """Tests for holdout_pairs / site_pairs utility functions."""
 
     def test_holdout_pairs_basic(self):
         """holdout_pairs returns pairs where either site is in test set."""
@@ -590,74 +574,112 @@ class TestHoldoutCV:
         assert len(hold_idx) + len(train_idx) == total
         assert len(set(hold_idx) & set(train_idx)) == 0
 
-    def test_build_model_holdout(self, sample_data):
-        """Model with holdout_mask has log_y_holdout as a free RV."""
-        X, y = sample_data
-        n_pairs = len(y)
-        mask = np.zeros(n_pairs, dtype=bool)
-        mask[:50] = True  # hold out first 50 pairs
 
-        model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=3, knots=2),
-            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+class TestGPConditionalPredict:
+    """Tests for GP conditional (kriging) prediction at new sites."""
+
+    @pytest.fixture
+    def train_test_data(self):
+        """Generate train/test split for GP conditional tests."""
+        np.random.seed(42)
+        n_train = 15
+        n_test = 5
+        n_total = n_train + n_test
+        X_all = pd.DataFrame({
+            "xc": np.random.uniform(0, 100, n_total),
+            "yc": np.random.uniform(0, 100, n_total),
+            "time_idx": np.zeros(n_total, dtype=int),
+            "temp": np.random.uniform(5, 20, n_total),
+        })
+        biomass = np.random.exponential(1, (n_total, 10))
+        y_all = np.clip(pdist(biomass, "braycurtis"), 1e-8, None)
+        X_train = X_all.iloc[:n_train].reset_index(drop=True)
+        X_test  = X_all.iloc[n_train:].reset_index(drop=True)
+        train_pair_idx = site_pairs(n_total, list(range(n_train)))
+        test_pair_idx  = site_pairs(n_total, list(range(n_train, n_total)))
+        y_train = y_all[train_pair_idx]
+        y_test  = y_all[test_pair_idx]
+        return X_train, y_train, X_test, y_test
+
+    def test_gp_stored_after_build_model(self, train_test_data):
+        """gp_ is set after build_model() for spatial configs, None otherwise."""
+        import pymc as pm
+        X_train, y_train, _, _ = train_test_data
+        model_spatial = spGDMM(
+            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="squared_diff",
+                                     alpha_importance=False),
         )
-        model.build_model(X, y, holdout_mask=mask)
+        model_spatial.build_model(X_train, y_train)
+        assert model_spatial.gp_ is not None
+        assert isinstance(model_spatial.gp_, pm.gp.Latent)
 
-        assert "log_y_holdout" in model.model_.named_vars
-        free_rv_names = [v.name for v in model.model_.free_RVs]
-        assert "log_y_holdout" in free_rv_names
-
-    def test_build_model_no_holdout_unchanged(self, sample_data):
-        """Without holdout_mask, model should NOT have log_y_holdout."""
-        X, y = sample_data
-        model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=3, knots=2),
-            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+        model_none = spGDMM(
+            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none",
+                                     alpha_importance=False),
         )
-        model.build_model(X, y)
-        assert "log_y_holdout" not in model.model_.named_vars
+        model_none.build_model(X_train, y_train)
+        assert model_none.gp_ is None
 
-    def test_build_model_holdout_covariate_dependent(self, sample_data):
-        """Holdout works with covariate_dependent variance (vector sigma2)."""
-        X, y = sample_data
-        n_pairs = len(y)
-        mask = np.zeros(n_pairs, dtype=bool)
-        mask[:50] = True
-
-        model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=3, knots=2),
-            model_config=ModelConfig(variance="covariate_dependent", spatial_effect="none"),
-        )
-        model.build_model(X, y, holdout_mask=mask)
-
-        assert "log_y_holdout" in model.model_.named_vars
-
-    def test_fit_with_holdout_mask(self, sample_data):
-        """Smoke test: fit with holdout_mask completes and extract_holdout_predictions works."""
-        X, y = sample_data
-        n_pairs = len(y)
-        mask = np.zeros(n_pairs, dtype=bool)
-        mask[:50] = True
+    def test_predict_new_sites_shape(self, train_test_data):
+        """predict(X_test) with n_test != n_train returns correct number of predictions."""
+        X_train, y_train, X_test, _ = train_test_data
+        n_test = len(X_test)
+        expected_pairs = n_test * (n_test - 1) // 2
 
         model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=3, knots=2),
-            model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
+            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="squared_diff",
+                                     alpha_importance=False),
             sampler_config=SamplerConfig(
                 draws=2, tune=2, chains=1, nuts_sampler="pymc", progressbar=False
             ),
         )
-        model.fit(X, y, holdout_mask=mask)
-        result = model.extract_holdout_predictions()
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        assert y_pred.shape == (expected_pairs,)
 
-        assert "hold_idx" in result
-        assert "y_pred_mean" in result
-        assert "y_pred_samples" in result
-        assert len(result["hold_idx"]) == 50
-        assert result["y_pred_mean"].shape == (50,)
-        assert result["y_pred_samples"].shape[0] == 50
-        # Predictions should be in [0, 1]
-        assert np.all(result["y_pred_mean"] >= 0)
-        assert np.all(result["y_pred_mean"] <= 1)
+    def test_predict_new_sites_range(self, train_test_data):
+        """Predictions at new sites: predict() returns log-scale; exp gives [0, 1]."""
+        X_train, y_train, X_test, _ = train_test_data
+
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="squared_diff",
+                                     alpha_importance=False),
+            sampler_config=SamplerConfig(
+                draws=2, tune=2, chains=1, nuts_sampler="pymc", progressbar=False
+            ),
+        )
+        model.fit(X_train, y_train)
+        log_y_pred = model.predict(X_test)
+        # predict() returns log-scale (log_y); exp maps to dissimilarity ∈ (0, 1]
+        y_pred = np.minimum(1.0, np.exp(log_y_pred))
+        assert np.all(y_pred >= 0)
+        assert np.all(y_pred <= 1)
+
+    def test_predict_new_sites_no_spatial(self, train_test_data):
+        """spatial_effect='none' uses standard pm.set_data path even for new-size prediction."""
+        X_train, y_train, X_test, _ = train_test_data
+        n_test = len(X_test)
+        expected_pairs = n_test * (n_test - 1) // 2
+
+        model = spGDMM(
+            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none",
+                                     alpha_importance=False),
+            sampler_config=SamplerConfig(
+                draws=2, tune=2, chains=1, nuts_sampler="pymc", progressbar=False
+            ),
+        )
+        model.fit(X_train, y_train)
+        log_y_pred = model.predict(X_test)
+        assert log_y_pred.shape == (expected_pairs,)
+        # predict() returns log-scale; exp maps to dissimilarity ∈ (0, 1]
+        y_pred = np.minimum(1.0, np.exp(log_y_pred))
+        assert np.all(y_pred >= 0)
+        assert np.all(y_pred <= 1)
 
 
 class TestSpGDMMSaveLoad:

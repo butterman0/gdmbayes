@@ -40,10 +40,11 @@ import itertools
 import os
 import subprocess
 import warnings
+
 import numpy as np
 import pandas as pd
-from scipy.stats import pearsonr
 from properscoring import crps_ensemble
+from scipy.stats import pearsonr
 
 
 def _git_hash():
@@ -137,8 +138,9 @@ def crps_samples(y_true, samples_da):
 # 1. Frequentist GDM
 # ---------------------------------------------------------------------------
 if args.mode in ("freq", "both"):
-    from gdmbayes import GDM, PreprocessorConfig, site_pairs
     from sklearn.model_selection import KFold
+
+    from gdmbayes import GDM, PreprocessorConfig, site_pairs
 
     print("=" * 60)
     print("FREQUENTIST GDM")
@@ -198,7 +200,7 @@ if args.mode in ("freq", "both"):
     print(f"MAE  (10-fold CV)          : {m_cv:.4f}  (White 2024 Ferrier: 0.0549)")
     print(f"CRPS (10-fold CV)          : {c_cv:.4f}  (= MAE for point forecast)")
     print(f"Pearson r (train)          : {corr:.4f}")
-    print(f"\nPredictor importance:")
+    print("\nPredictor importance:")
     for name, imp in gdm.predictor_importance_.items():
         print(f"  {name:20s}  {imp:.4f}")
 
@@ -218,8 +220,9 @@ if args.mode in ("freq", "both"):
 # 2. Bayesian spGDMM — 8 model configurations × 10-fold CV
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
-    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs, holdout_pairs
     from sklearn.model_selection import KFold
+
+    from gdmbayes import ModelConfig, PreprocessorConfig, SamplerConfig, site_pairs, spGDMM
 
     # Model grid matching White et al. (2024) Table 1 (Models 1-9)
     CONFIGS = [
@@ -291,25 +294,30 @@ if args.mode in ("bayes", "both"):
                     full_model.save(out_nc)
                     print(f"  Full-data model saved to {out_nc}")
 
-        # --- Masked-holdout CV (White et al. 2024 strategy) ---
+        # --- Standard sklearn CV — fit on training sites, predict on test sites ---
         fold_metrics = []
 
         for fold, (train_sites, test_sites) in enumerate(
             itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
         ):
-            hold_idx = holdout_pairs(n_sites, test_sites)
-            mask = np.zeros(n_pairs, dtype=bool)
-            mask[hold_idx] = True
+            train_pair_idx = site_pairs(n_sites, train_sites)
+            test_pair_idx  = site_pairs(n_sites, test_sites)
             print(f"  Fold {fold + 1}/{args.n_folds} — {len(train_sites)} train sites, "
-                  f"{len(test_sites)} test sites, {mask.sum()} held-out pairs")
+                  f"{len(test_sites)} test sites, {len(test_pair_idx)} test pairs")
             cv_model = make_spgdmm()
-            cv_model.fit(X, y, holdout_mask=mask,
-                         train_X=X.iloc[train_sites].reset_index(drop=True))
-            result = cv_model.extract_holdout_predictions()
+            cv_model.fit(
+                X.iloc[train_sites].reset_index(drop=True),
+                y[train_pair_idx],
+            )
+            log_y_post = cv_model.predict_posterior(
+                X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
+            )
+            y_samples = np.minimum(1.0, np.exp(log_y_post[cv_model.output_var].values))
+            y_pred_mean = y_samples.mean(axis=-1)
             fold_metrics.append({
-                "rmse": rmse(y[result["hold_idx"]], result["y_pred_mean"]),
-                "mae": mae(y[result["hold_idx"]], result["y_pred_mean"]),
-                "crps": crps_ensemble(y[result["hold_idx"]], result["y_pred_samples"]).mean(),
+                "rmse": rmse(y[test_pair_idx], y_pred_mean),
+                "mae":  mae( y[test_pair_idx], y_pred_mean),
+                "crps": crps_ensemble(y[test_pair_idx], y_samples).mean(),
             })
 
         r_cv = np.mean([m["rmse"] for m in fold_metrics])
