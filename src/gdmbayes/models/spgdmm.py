@@ -83,6 +83,9 @@ class spGDMM(BaseEstimator):
                 f"got {type(preprocessor)!r}"
             )
 
+        # ------------------------------------------------------------------ #
+        # Model config
+        # ------------------------------------------------------------------ #
         if isinstance(model_config, dict):
             self._config = ModelConfig.from_dict(model_config)
             # Store the exact dict reference so sklearn.clone() identity check passes.
@@ -128,15 +131,16 @@ class spGDMM(BaseEstimator):
         return {"no_validation": True, "non_deterministic": True}
 
     @property
-    def config(self) -> dict:
-        """Get model configuration as dictionary (legacy interface)."""
-        return self._config.to_dict()
-
-    @property
     def _variance_type(self) -> str:
         """Return the variance type as a string ('custom' for callable)."""
         v = self._config.variance
         return v if isinstance(v, str) else "custom"
+
+    @property
+    def _spatial_type(self) -> str:
+        """Return the spatial effect type as a string ('custom' for callable)."""
+        s = self._config.spatial_effect
+        return s if isinstance(s, str) else "custom"
 
     def _generate_and_preprocess_model_data(
         self,
@@ -309,7 +313,7 @@ class spGDMM(BaseEstimator):
                 X_sigma_data = None
             sigma2 = variance_fn(mu, X_sigma_data)
 
-            if self._config.spatial_effect != "none":
+            if self._spatial_type != "none":
                 sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
                 location_values = self.preprocessor.location_values_train_
                 length_scale = self.preprocessor.length_scale_
@@ -332,8 +336,7 @@ class spGDMM(BaseEstimator):
                 col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
 
                 spatial_fn = (
-                    self._config.spatial_effect
-                    if callable(self._config.spatial_effect)
+                    self._config.spatial_effect if self._spatial_type == "custom"
                     else SPATIAL_FUNCTIONS[self._config.spatial_effect]
                 )
                 mu += spatial_fn(psi, row_indices, col_indices)
@@ -373,7 +376,7 @@ class spGDMM(BaseEstimator):
         n_train_sites = self.preprocessor.location_values_train_.shape[0]
 
         # Route to GP conditional for new-site prediction when a spatial effect is active.
-        if self._config.spatial_effect != "none" and n_pred_sites != n_train_sites:
+        if self._spatial_type != "none" and n_pred_sites != n_train_sites:
             self._predict_gp_conditional(X)
             return
 
@@ -397,7 +400,7 @@ class spGDMM(BaseEstimator):
         # For spatial models: recompute pair indices for the prediction sites so the
         # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
         # via the quadratic formula: n_pairs = n*(n-1)/2.
-        if self._config.spatial_effect != "none":
+        if self._spatial_type != "none":
             pred_row_ind, pred_col_ind = np.triu_indices(n_pred_sites, k=1)
             set_data_dict["row_indices"] = pred_row_ind.astype(np.int32)
             set_data_dict["col_indices"] = pred_col_ind.astype(np.int32)
@@ -473,18 +476,13 @@ class spGDMM(BaseEstimator):
         mu = beta_0[:, None] + (beta @ X_pred_features.T)
 
         # spatial contribution
-        spatial_type = (
-            self._config.spatial_effect
-            if isinstance(self._config.spatial_effect, str)
-            else None
-        )
-        if spatial_type == "squared_diff":
+        if self._spatial_type == "squared_diff":
             diff = psi_flat[:, row_p] - psi_flat[:, col_p]   # (n_samples, n_pred_pairs)
             mu = mu + diff ** 2
-        elif spatial_type == "abs_diff":
+        elif self._spatial_type == "abs_diff":
             diff = psi_flat[:, row_p] - psi_flat[:, col_p]
             mu = mu + np.abs(diff)
-        elif callable(self._config.spatial_effect):
+        elif self._spatial_type == "custom":
             # Custom callable: apply per sample (rare path)
             spatial_contrib = np.stack([
                 np.asarray(self._config.spatial_effect(psi_flat[s], row_p, col_p))
@@ -577,11 +575,10 @@ class spGDMM(BaseEstimator):
 
         # Resolve the spatial function once (works on both numpy and pytensor
         # since the registered functions use only generic ops like abs() and **).
-        spatial_effect = self._config.spatial_effect
-        if spatial_effect != "none":
+        if self._spatial_type != "none":
             spatial_fn = (
-                spatial_effect if callable(spatial_effect)
-                else SPATIAL_FUNCTIONS[spatial_effect]
+                self._config.spatial_effect if self._spatial_type == "custom"
+                else SPATIAL_FUNCTIONS[self._config.spatial_effect]
             )
 
         initvals = {}
@@ -612,7 +609,7 @@ class spGDMM(BaseEstimator):
             # White et al. initialises psi by optimising
             #   sum((log_y - b0 - X @ exp(log_b) - spatial(psi))^2)
             # jointly over [beta_0, log_beta, psi].
-            if spatial_effect != "none":
+            if self._spatial_type != "none":
                 ns = n_train
 
                 x0_psi = np.random.default_rng(42).normal(0, 0.1, size=ns)
