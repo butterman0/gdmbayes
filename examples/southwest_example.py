@@ -309,6 +309,12 @@ if args.mode in ("bayes", "both"):
                 X.iloc[train_sites].reset_index(drop=True),
                 y[train_pair_idx],
             )
+            import arviz as az
+            rhat = az.rhat(cv_model.idata_)
+            rhat_max = float(rhat.to_array().max())
+            rhat_vars = {v: float(rhat[v].max()) for v in rhat.data_vars}
+            print(f"  R-hat max: {rhat_max:.4f}  per-var: "
+                  + "  ".join(f"{k}={v:.3f}" for k, v in rhat_vars.items()))
             log_y_post = cv_model.predict_posterior(
                 X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
             )
