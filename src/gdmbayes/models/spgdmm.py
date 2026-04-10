@@ -139,7 +139,11 @@ class spGDMM(BaseEstimator):
         return v if isinstance(v, str) else "custom"
 
     def _generate_and_preprocess_model_data(
-        self, X: pd.DataFrame, y: pd.Series, holdout_mask: np.ndarray | None = None,
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        holdout_mask: np.ndarray | None = None,
+        train_X: "pd.DataFrame | None" = None,
     ) -> None:
         """
         Preprocess model data before fitting.
@@ -151,15 +155,20 @@ class spGDMM(BaseEstimator):
         Parameters
         ----------
         X : pd.DataFrame
-            Site-level data with columns [xc, yc, time_idx, predictor1, ...]
+            Site-level data for ALL sites (used for GP coverage and transform).
         y : pd.Series
             Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2).
         holdout_mask : np.ndarray of bool or None, optional
             Boolean mask (length n_pairs, True = held-out pair).  When set,
             the model is built on ALL sites but the likelihood is split:
             observed pairs get the Censored likelihood, held-out pairs become
-            free Normal RVs.  This replicates the White et al. (2024) CV
-            strategy where latent variables are sampled for masked pairs.
+            free Normal RVs.
+        train_X : pd.DataFrame or None, optional
+            Site-level data for training sites ONLY.  When provided, spline
+            meshes, distance mesh, and GP length scale are fitted from these
+            sites, preventing test-site feature leakage.  The GP spatial
+            effect still covers all sites in ``X`` (via ``location_values_train_``).
+            If None, meshes are fitted from all sites in ``X`` (original behaviour).
         """
         self._holdout_mask = holdout_mask
         if isinstance(X, np.ndarray):
@@ -174,11 +183,20 @@ class spGDMM(BaseEstimator):
             self.feature_names_in_ = np.array(X.columns)
 
         # Fit the preprocessor only if it hasn't been fitted yet (e.g., on load path).
+        # When train_X is provided, fit on training sites only to avoid leakage.
         try:
             check_is_fitted(self.preprocessor)
         except NotFittedError:
-            self.preprocessor.fit(X)
+            self.preprocessor.fit(train_X if train_X is not None else X)
         prep = self.preprocessor
+
+        # For CV: override location_values_train_ to ALL sites so the GP prior
+        # covers test-site locations too (the whole point of masked-holdout CV).
+        # Mesh knots and length scale remain from train_X only.
+        if train_X is not None:
+            prep.location_values_train_ = (
+                X.iloc[:, :2].values if isinstance(X, pd.DataFrame) else X[:, :2]
+            )
 
         # Delegate pairwise I-spline diffs + distance splines to preprocessor.
         self.X_GDM_ = prep.transform(X)
@@ -188,12 +206,28 @@ class spGDMM(BaseEstimator):
         # Matches White et al.'s R code: X_sigma = cbind(1, poly(vec_distance, 3))
         # Only computed when variance="covariate_dependent".
         if self._variance_type == "covariate_dependent":
-            pw_distance = prep.pw_distance(prep.location_values_train_)
-            pw_dist_fit = np.clip(pw_distance, prep.dist_mesh_[0], prep.dist_mesh_[-1])
-            poly_cols, alpha, norm2 = poly_fit(pw_dist_fit, degree=3)
+            if train_X is not None:
+                # Fit basis on train-pair distances only (no leakage).
+                train_locs = (
+                    train_X.iloc[:, :2].values
+                    if isinstance(train_X, pd.DataFrame) else train_X[:, :2]
+                )
+                pw_dist_for_fit = prep.pw_distance(train_locs)
+            else:
+                pw_dist_for_fit = prep.pw_distance(prep.location_values_train_)
+
+            pw_dist_fit = np.clip(pw_dist_for_fit, prep.dist_mesh_[0], prep.dist_mesh_[-1])
+            _, alpha, norm2 = poly_fit(pw_dist_fit, degree=3)
             self._poly_alpha = alpha
             self._poly_norm2 = norm2
-            self._X_sigma = np.column_stack([np.ones(len(pw_dist_fit)), poly_cols])
+
+            # Compute X_sigma for ALL pairs (train + holdout) using the
+            # train-fitted basis via poly_predict.
+            all_locs = prep.location_values_train_  # already updated to all sites if train_X set
+            pw_dist_all = prep.pw_distance(all_locs)
+            pw_dist_all_clipped = np.clip(pw_dist_all, prep.dist_mesh_[0], prep.dist_mesh_[-1])
+            poly_cols_all = poly_predict(pw_dist_all_clipped, alpha, norm2)
+            self._X_sigma = np.column_stack([np.ones(len(pw_dist_all)), poly_cols_all])
         else:
             self._X_sigma = None
             self._poly_alpha = None
@@ -217,6 +251,7 @@ class spGDMM(BaseEstimator):
         X: "pd.DataFrame | None" = None,
         y: "pd.Series | np.ndarray | None" = None,
         holdout_mask: "np.ndarray | None" = None,
+        train_X: "pd.DataFrame | None" = None,
     ) -> None:
         """Preprocess data (if provided) and build the PyMC model.
 
@@ -231,12 +266,19 @@ class spGDMM(BaseEstimator):
             Pairwise dissimilarities. Required when ``X`` is provided.
         holdout_mask : np.ndarray of bool, optional
             Boolean mask for masked-holdout CV (True = held-out pair).
+        train_X : pd.DataFrame or None, optional
+            Site-level data for training sites only.  When provided, spline
+            meshes, distance mesh, and GP length scale are fitted from these
+            sites only (no test-site leakage).  The GP still covers all sites
+            in ``X``.  Passed through to ``_generate_and_preprocess_model_data``.
         """
         if X is not None:
             if y is None:
                 raise ValueError("y is required when X is provided.")
             y_array = np.asarray(y, dtype=float)
-            self._generate_and_preprocess_model_data(X, y_array, holdout_mask=holdout_mask)
+            self._generate_and_preprocess_model_data(
+                X, y_array, holdout_mask=holdout_mask, train_X=train_X
+            )
         elif self.X_GDM_ is None:
             raise ValueError("No preprocessed data. Pass X and y, or call fit().")
 
@@ -672,6 +714,7 @@ class spGDMM(BaseEstimator):
         X: pd.DataFrame,
         y: pd.Series | None = None,
         holdout_mask: np.ndarray | None = None,
+        train_X: "pd.DataFrame | None" = None,
         progressbar: bool = True,
         random_seed=None,
         **kwargs,
@@ -691,6 +734,11 @@ class spGDMM(BaseEstimator):
             observed (Censored) and held-out (free Normal) terms.  Use
             ``extract_holdout_predictions()`` to retrieve posterior samples for
             the held-out pairs.
+        train_X : pd.DataFrame or None, optional
+            Site-level data for training sites only.  When provided, spline
+            meshes, distance mesh, and GP length scale are fitted from these
+            sites, preventing test-site feature leakage.  The GP spatial
+            effect still covers all sites in ``X``.
         progressbar : bool
             Whether to display a progress bar during sampling.
         random_seed : int or None
@@ -715,7 +763,7 @@ class spGDMM(BaseEstimator):
 
         y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
 
-        self.build_model(X, y_series.values, holdout_mask=holdout_mask)
+        self.build_model(X, y_series.values, holdout_mask=holdout_mask, train_X=train_X)
 
         self.idata_ = self._sample_model(sampler_args=sampler_args)
 

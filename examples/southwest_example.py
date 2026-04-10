@@ -303,7 +303,8 @@ if args.mode in ("bayes", "both"):
             print(f"  Fold {fold + 1}/{args.n_folds} — {len(train_sites)} train sites, "
                   f"{len(test_sites)} test sites, {mask.sum()} held-out pairs")
             cv_model = make_spgdmm()
-            cv_model.fit(X, y, holdout_mask=mask)
+            cv_model.fit(X, y, holdout_mask=mask,
+                         train_X=X.iloc[train_sites].reset_index(drop=True))
             result = cv_model.extract_holdout_predictions()
             fold_metrics.append({
                 "rmse": rmse(y[result["hold_idx"]], result["y_pred_mean"]),
