@@ -5,15 +5,14 @@
 ## Class Descriptions
 
 - **`GDM`** (`models/gdm.py`): Frequentist sklearn estimator implementing the R GDM algorithm. `fit(X, y)` applies the cloglog link to `y`, runs NNLS on the I-spline feature matrix, and stores coefficients. `predict(X)` returns pairwise dissimilarities via `1 - exp(-X_GDM @ coef_)`.
-- **`GDMPreprocessor`** (`preprocessing/preprocessor.py`): sklearn-style transformer. Owns all data-transformation logic: I-spline mesh construction, geographic distance computation, and pairwise feature matrix assembly. Fitted state is saved/loaded via `to_xarray()` / `from_xarray()`.
+- **`GDMPreprocessor`** (`preprocessing/preprocessor.py`): sklearn-style transformer. Init params: `deg`, `knots`, `mesh_choice`, `distance_measure`, `extrapolation`, `custom_dist_mesh`, `custom_predictor_mesh`. Owns all data-transformation logic: I-spline mesh construction, geographic distance computation, and pairwise feature matrix assembly. Fitted state is saved/loaded via `to_xarray()` / `from_xarray()`.
 - **`spGDMM`** (`models/spgdmm.py`): Bayesian estimator. Delegates preprocessing to `self.preprocessor` (a `GDMPreprocessor`). `fit()` calls `preprocessor.fit()`, builds a PyMC model, runs MCMC, and returns `InferenceData`. Includes `gdm_transform()` and `ispline_extract()` methods.
 - **`plotting.plots`** (`plotting/plots.py`): `plot_isplines()` and related visualisation helpers for fitted spGDMM models.
 - **`utils.site_pairs`** (`utils.py`): Converts a site-index subset to condensed pair indices into a `y` vector. Used in all CV loops to slice train/test pairs from the full pairwise dissimilarity vector.
 
 ## Configuration
 
-- **`PreprocessorConfig`** (`preprocessing/config.py`): I-spline settings and distance measure — `deg`, `knots`, `mesh_choice`, `distance_measure`, `custom_dist_mesh`, `custom_predictor_mesh`, `extrapolation`.
-- **`ModelConfig`** (`models/config.py`): Bayesian model structure — variance (homogeneous/covariate_dependent/polynomial/custom), spatial_effect (none/abs_diff/squared_diff/custom), `alpha_importance`, and custom callable fields. **No longer contains preprocessing fields.**
+- **`ModelConfig`** (`models/config.py`): Bayesian model structure — variance (homogeneous/covariate_dependent/polynomial/custom), spatial_effect (none/abs_diff/squared_diff/custom), `alpha_importance`, and custom callable fields.
 - **`SamplerConfig`** (`models/config.py`): MCMC settings (draws, tune, chains, target_accept, nuts_sampler).
 
 ## Data Flow

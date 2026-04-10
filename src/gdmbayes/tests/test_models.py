@@ -13,8 +13,8 @@ from sklearn.utils.validation import check_is_fitted
 
 from gdmbayes import (
     GDM,
+    GDMPreprocessor,
     ModelConfig,
-    PreprocessorConfig,
     SamplerConfig,
     site_pairs,
     spGDMM,
@@ -82,46 +82,6 @@ class TestModelConfig:
         assert config.variance == "homogeneous"
 
 
-class TestPreprocessorConfig:
-    """Test PreprocessorConfig dataclass."""
-
-    def test_default_config(self):
-        """Test default preprocessor configuration."""
-        cfg = PreprocessorConfig()
-        assert cfg.deg == 3
-        assert cfg.knots == 2
-        assert cfg.mesh_choice == "percentile"
-        assert cfg.distance_measure == "euclidean"
-        assert cfg.extrapolation == "clip"
-        assert cfg.custom_dist_mesh is None
-        assert cfg.custom_predictor_mesh is None
-
-    def test_to_dict(self):
-        """Test to_dict excludes numpy arrays."""
-        cfg = PreprocessorConfig(deg=4, knots=3, distance_measure="geodesic")
-        d = cfg.to_dict()
-        assert d["deg"] == 4
-        assert d["knots"] == 3
-        assert d["distance_measure"] == "geodesic"
-        assert "custom_dist_mesh" not in d
-        assert "custom_predictor_mesh" not in d
-
-    def test_from_dict(self):
-        """Test from_dict round-trip."""
-        d = {"deg": 2, "knots": 1, "mesh_choice": "even", "extrapolation": "nan"}
-        cfg = PreprocessorConfig.from_dict(d)
-        assert cfg.deg == 2
-        assert cfg.knots == 1
-        assert cfg.mesh_choice == "even"
-        assert cfg.extrapolation == "nan"
-
-    def test_from_dict_defaults(self):
-        """Test from_dict with empty dict gives defaults."""
-        cfg = PreprocessorConfig.from_dict({})
-        assert cfg.deg == 3
-        assert cfg.extrapolation == "clip"
-
-
 class TestSamplerConfig:
     """Test SamplerConfig dataclass."""
 
@@ -182,15 +142,14 @@ class TestSpGDMM:
         assert model._config.variance == "homogeneous"
         assert model._config.spatial_effect == "none"
         # Preprocessing settings now live on the preprocessor
-        assert model.preprocessor._get_config().deg == 3
-        assert model.preprocessor._get_config().knots == 2
+        assert model.preprocessor.deg == 3
+        assert model.preprocessor.knots == 2
 
     def test_model_from_config(self):
-        """Test creating model from preprocessor config."""
-        prep_config = PreprocessorConfig(deg=4, knots=3)
-        model = spGDMM(preprocessor=prep_config)
-        assert model.preprocessor._get_config().deg == 4
-        assert model.preprocessor._get_config().knots == 3
+        """Test creating model from preprocessor."""
+        model = spGDMM(preprocessor=GDMPreprocessor(deg=4, knots=3))
+        assert model.preprocessor.deg == 4
+        assert model.preprocessor.knots == 3
 
     def test_model_from_model_config(self):
         """Test creating model from ModelConfig."""
@@ -381,22 +340,8 @@ class TestExtrapolation:
         return X_pred
 
     def test_default_extrapolation_is_clip(self):
-        """Extrapolation default lives on PreprocessorConfig."""
-        cfg = PreprocessorConfig()
-        assert cfg.extrapolation == "clip"
-
-    def test_extrapolation_in_to_dict(self):
-        cfg = PreprocessorConfig(extrapolation="error")
-        d = cfg.to_dict()
-        assert d["extrapolation"] == "error"
-
-    def test_extrapolation_in_from_dict(self):
-        cfg = PreprocessorConfig.from_dict({"extrapolation": "nan"})
-        assert cfg.extrapolation == "nan"
-
-    def test_from_dict_missing_extrapolation_defaults_to_clip(self):
-        cfg = PreprocessorConfig.from_dict({})
-        assert cfg.extrapolation == "clip"
+        prep = GDMPreprocessor()
+        assert prep.extrapolation == "clip"
 
     def test_clip_mode_warns(self, fitted_model):
         model, X = fitted_model
@@ -415,20 +360,20 @@ class TestExtrapolation:
 
     def test_error_mode_raises(self, fitted_model):
         model, X = fitted_model
-        model.preprocessor.config = PreprocessorConfig(extrapolation="error")
+        model.preprocessor.extrapolation = "error"
         X_oob = self._make_oob_X(X)
         with pytest.raises(ValueError, match="outside predictor_mesh bounds"):
             model.preprocessor.transform(X_oob)
 
     def test_error_mode_no_raise_in_range(self, fitted_model):
         model, X = fitted_model
-        model.preprocessor.config = PreprocessorConfig(extrapolation="error")
+        model.preprocessor.extrapolation = "error"
         # Should not raise when all values are within training range
         model.preprocessor.transform(X)
 
     def test_nan_mode_produces_nans(self, fitted_model):
         model, X = fitted_model
-        model.preprocessor.config = PreprocessorConfig(extrapolation="nan")
+        model.preprocessor.extrapolation = "nan"
         X_oob = self._make_oob_X(X)
         result = model.preprocessor.transform(X_oob)
         # Some rows must contain NaN (pairs involving the out-of-range site)
@@ -436,7 +381,7 @@ class TestExtrapolation:
 
     def test_nan_mode_inrange_pairs_are_finite(self, fitted_model):
         model, X = fitted_model
-        model.preprocessor.config = PreprocessorConfig(extrapolation="nan")
+        model.preprocessor.extrapolation = "nan"
         # All in-range — no NaN expected
         result = model.preprocessor.transform(X)
         assert not np.isnan(result).any()
@@ -465,16 +410,14 @@ class TestSpGDMMSklearnInterface:
 
     @pytest.fixture
     def model(self):
-        prep_cfg = PreprocessorConfig(deg=3, knots=2)
         model_cfg = ModelConfig(variance="homogeneous", spatial_effect="none")
-        return spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
+        return spGDMM(preprocessor=GDMPreprocessor(deg=3, knots=2), model_config=model_cfg)
 
     @pytest.fixture
     def preprocessed_model(self):
         X, y = _make_sample_data()
-        prep_cfg = PreprocessorConfig(deg=3, knots=2)
         model_cfg = ModelConfig(variance="homogeneous", spatial_effect="none")
-        m = spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
+        m = spGDMM(preprocessor=GDMPreprocessor(deg=3, knots=2), model_config=model_cfg)
         m._generate_and_preprocess_model_data(X, y)
         return m
 
@@ -493,7 +436,7 @@ class TestSpGDMMSklearnInterface:
 
     def test_clone_preserves_preprocessor_config(self, model):
         cloned = clone(model)
-        assert cloned.preprocessor._get_config().deg == model.preprocessor._get_config().deg
+        assert cloned.preprocessor.deg == model.preprocessor.deg
 
     def test_clone_preserves_model_config(self, model):
         cloned = clone(model)
@@ -523,14 +466,14 @@ class TestSpGDMMSklearnInterface:
         assert model.id == model.id
         # Two models with identical config share the same id
         model2 = spGDMM(
-            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            preprocessor=GDMPreprocessor(deg=3, knots=2),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
         )
         assert model.id == model2.id
 
-    def test_preprocessor_config_deg(self):
-        model = spGDMM(preprocessor=PreprocessorConfig(deg=5))
-        assert model.preprocessor.config.deg == 5
+    def test_preprocessor_deg(self):
+        model = spGDMM(preprocessor=GDMPreprocessor(deg=5))
+        assert model.preprocessor.deg == 5
 
     def test_preprocessor_skips_refit(self):
         X, y = _make_sample_data()
@@ -572,7 +515,7 @@ class TestGPConditionalPredict:
         import pymc as pm
         X_train, y_train, _, _ = train_test_data
         model_spatial = spGDMM(
-            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            preprocessor=GDMPreprocessor(deg=2, knots=1),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="squared_diff",
                                      alpha_importance=False),
         )
@@ -581,7 +524,7 @@ class TestGPConditionalPredict:
         assert isinstance(model_spatial.gp_, pm.gp.Latent)
 
         model_none = spGDMM(
-            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            preprocessor=GDMPreprocessor(deg=2, knots=1),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none",
                                      alpha_importance=False),
         )
@@ -595,7 +538,7 @@ class TestGPConditionalPredict:
         expected_pairs = n_test * (n_test - 1) // 2
 
         model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            preprocessor=GDMPreprocessor(deg=2, knots=1),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="squared_diff",
                                      alpha_importance=False),
             sampler_config=SamplerConfig(
@@ -611,7 +554,7 @@ class TestGPConditionalPredict:
         X_train, y_train, X_test, _ = train_test_data
 
         model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            preprocessor=GDMPreprocessor(deg=2, knots=1),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="squared_diff",
                                      alpha_importance=False),
             sampler_config=SamplerConfig(
@@ -632,7 +575,7 @@ class TestGPConditionalPredict:
         expected_pairs = n_test * (n_test - 1) // 2
 
         model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=2, knots=1),
+            preprocessor=GDMPreprocessor(deg=2, knots=1),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none",
                                      alpha_importance=False),
             sampler_config=SamplerConfig(
@@ -660,7 +603,7 @@ class TestSpGDMMSaveLoad:
         """Fit once per module; return (model, save_path, X, y)."""
         X, y = _make_sample_data(n_sites=15, seed=7)
         model = spGDMM(
-            preprocessor=PreprocessorConfig(deg=3, knots=2),
+            preprocessor=GDMPreprocessor(deg=3, knots=2),
             model_config=ModelConfig(variance="homogeneous", spatial_effect="none"),
             sampler_config=TestSpGDMMSaveLoad._FAST_SAMPLER,
         )
@@ -841,10 +784,9 @@ class TestGDM:
         s = m.score(X, y)
         assert s <= 1.0
 
-    def test_preprocessor_config_override(self, sample_data):
+    def test_splines_knots_override(self, sample_data):
         X, y = sample_data
-        cfg = PreprocessorConfig(deg=2, knots=3)
-        m = GDM(preprocessor_config=cfg).fit(X, y)
+        m = GDM(splines=2, knots=3).fit(X, y)
         assert m.preprocessor_.n_spline_bases_ == 2 + 3
 
     def test_deviances_nonnegative(self, sample_data):

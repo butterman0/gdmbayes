@@ -43,7 +43,6 @@ from .plotting.plots import (
 )
 
 # Preprocessing
-from .preprocessing.config import PreprocessorConfig
 from .preprocessing.preprocessor import GDMPreprocessor
 
 # Utilities
@@ -71,7 +70,6 @@ __all__ = [
     "spatial_squared_diff",
     "SPATIAL_FUNCTIONS",
     # Preprocessor
-    "PreprocessorConfig",
     "GDMPreprocessor",
     # Utilities
     "site_pairs",

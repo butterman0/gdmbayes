@@ -2,15 +2,11 @@
 
 ## Preprocessor Separation from Bayesian Estimator
 
-`GDMPreprocessor` is passed as a constructor arg to `spGDMM` (not as a pipeline step) because `build_model()` needs scalar metadata from it (`location_values_train_`, `length_scale_`, dimension counts) that cannot travel through a standard `Pipeline`. This follows the same idiom as `GaussianProcessRegressor(kernel=RBF())`.
+`GDMPreprocessor` is passed as a constructor arg to `spGDMM` (not as a pipeline step) because `build_model()` needs scalar metadata from it (`location_values_train_`, `length_scale_`, dimension counts) that cannot travel through a standard `Pipeline`. This follows the same idiom as `GaussianProcessRegressor(kernel=RBF())`. All preprocessing hyperparameters (`deg`, `knots`, `mesh_choice`, `distance_measure`, `extrapolation`, etc.) are direct `__init__` params on `GDMPreprocessor`, following the standard sklearn estimator pattern.
 
 ## State Serialization via xarray
 
-Transformation state (spline knots, column indices, spatial metadata) is saved into `idata` via `GDMPreprocessor.to_xarray()` (called by `spGDMM._save_input_params()`) and reconstructed via `GDMPreprocessor.from_xarray()`.
-
-## ModelConfig Deprecation Handling
-
-`ModelConfig` now contains only Bayesian model-structure fields. Legacy preprocessing keys passed via `model_config` trigger a `DeprecationWarning`.
+Transformation state (spline knots, column indices, spatial metadata) is saved into `idata` via `GDMPreprocessor.to_xarray()` (called by `spGDMM._save_input_params()`) and reconstructed via `GDMPreprocessor.from_xarray()`. All hyperparameters are stored as dataset attrs and round-trip correctly (custom mesh arrays are not serialized since the fitted meshes capture the result).
 
 ## Cross-Validation — Standard sklearn fit/predict with GP Conditional
 

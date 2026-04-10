@@ -2,11 +2,11 @@
 
 from typing import TYPE_CHECKING
 
+import arviz as az
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import xarray as xr
-import arviz as az
-import matplotlib.pyplot as plt
 from dms_variants.ispline import Isplines
 
 if TYPE_CHECKING:
@@ -61,9 +61,8 @@ def plot_isplines(model: "spGDMM", features=None, hdi_prob=0.9, figsize=(6.5, 4)
         alpha_mean = idata.posterior.alpha.mean(dim=["chain", "draw"])
 
     predictor_mesh = prep.predictor_mesh_
-    cfg = prep._get_config()
-    deg = cfg.deg
-    knots = cfg.knots
+    deg = prep.deg
+    knots = prep.knots
 
     for i, feat in enumerate(env_feats):
         mesh_col = predictor_mesh[i]

@@ -19,7 +19,6 @@ from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
-from ..preprocessing.config import PreprocessorConfig
 from ..preprocessing.preprocessor import GDMPreprocessor
 from .config import ModelConfig, SamplerConfig
 from .spatial import SPATIAL_FUNCTIONS
@@ -35,27 +34,20 @@ class spGDMM(BaseEstimator):
 
     Parameters
     ----------
-    preprocessor : GDMPreprocessor, PreprocessorConfig, or None, optional
-        Data preprocessing configuration or a pre-built preprocessor.
-        If None, a default ``GDMPreprocessor(PreprocessorConfig())`` is used.
-        If a ``PreprocessorConfig`` is passed, it is wrapped in a ``GDMPreprocessor``.
+    preprocessor : GDMPreprocessor or None, optional
+        Data preprocessor. If None, a default ``GDMPreprocessor()`` is used.
     model_config : dict or ModelConfig, optional
         Model structure configuration (variance type, spatial effects, etc.).
         Defaults to ``ModelConfig()``.
-
-        .. deprecated::
-            Passing preprocessing fields (``deg``, ``knots``, ``mesh_choice``,
-            ``distance_measure``, ``extrapolation``, etc.) via ``model_config``
-            is deprecated. Pass them via ``preprocessor`` instead.
     sampler_config : dict or SamplerConfig, optional
         MCMC sampler configuration. Defaults to PyMC/nutpie defaults.
 
     Examples
     --------
-    >>> from gdmbayes import spGDMM, ModelConfig, PreprocessorConfig
-    >>> prep_cfg = PreprocessorConfig(deg=3, knots=2, distance_measure="euclidean")
+    >>> from gdmbayes import spGDMM, ModelConfig, GDMPreprocessor
+    >>> prep = GDMPreprocessor(deg=3, knots=2, distance_measure="euclidean")
     >>> model_cfg = ModelConfig(variance="homogeneous", spatial_effect="abs_diff")
-    >>> model = spGDMM(preprocessor=prep_cfg, model_config=model_cfg)
+    >>> model = spGDMM(preprocessor=prep, model_config=model_cfg)
     >>> idata = model.fit(X, y)
     """
 
@@ -64,7 +56,7 @@ class spGDMM(BaseEstimator):
 
     def __init__(
         self,
-        preprocessor: "GDMPreprocessor | PreprocessorConfig | None" = None,
+        preprocessor: "GDMPreprocessor | None" = None,
         model_config: "dict | ModelConfig | None" = None,
         sampler_config: "dict | SamplerConfig | None" = None,
     ):
@@ -73,13 +65,11 @@ class spGDMM(BaseEstimator):
         # ------------------------------------------------------------------ #
         if isinstance(preprocessor, GDMPreprocessor):
             self.preprocessor = preprocessor
-        elif isinstance(preprocessor, PreprocessorConfig):
-            self.preprocessor = GDMPreprocessor(config=preprocessor)
         elif preprocessor is None:
-            self.preprocessor = GDMPreprocessor(config=PreprocessorConfig())
+            self.preprocessor = GDMPreprocessor()
         else:
             raise TypeError(
-                f"preprocessor must be a GDMPreprocessor, PreprocessorConfig, or None; "
+                f"preprocessor must be a GDMPreprocessor or None; "
                 f"got {type(preprocessor)!r}"
             )
 

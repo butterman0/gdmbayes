@@ -10,13 +10,11 @@ import warnings
 import numpy as np
 import pandas as pd
 import xarray as xr
+from dms_variants.ispline import Isplines
 from geopy.distance import geodesic
 from scipy.spatial.distance import pdist
-from dms_variants.ispline import Isplines
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
-
-from .config import PreprocessorConfig
 
 
 class GDMPreprocessor(BaseEstimator, TransformerMixin):
@@ -27,8 +25,24 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
 
     Parameters
     ----------
-    config : PreprocessorConfig or None, default None
-        Preprocessing configuration. If None, defaults to ``PreprocessorConfig()``.
+    deg : int, default 3
+        Degree of I-spline basis functions.
+    knots : int, default 2
+        Number of interior knots for I-splines.
+    mesh_choice : {"percentile", "even", "custom"}, default "percentile"
+        Method for computing predictor mesh knot positions.
+    distance_measure : str, default "euclidean"
+        Geographic distance metric: "euclidean" or "geodesic".
+    custom_dist_mesh : np.ndarray or None, default None
+        Custom knot mesh for distance I-splines (overrides computed mesh).
+    custom_predictor_mesh : np.ndarray or None, default None
+        Custom knot mesh for predictor I-splines (used when mesh_choice="custom").
+    extrapolation : {"clip", "error", "nan"}, default "clip"
+        Controls behaviour when prediction data fall outside training mesh bounds.
+
+        * ``"clip"``  — clamp out-of-range values to the mesh boundary and warn.
+        * ``"error"`` — raise ``ValueError`` on any out-of-range value.
+        * ``"nan"``   — propagate NaN for affected sites or pairs.
 
     Attributes (set after fit)
     --------------------------
@@ -50,14 +64,23 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         Names of environmental predictors from training data.
     """
 
-    def __init__(self, config: "PreprocessorConfig | None" = None):
-        self.config = config
-
-    def _get_config(self) -> PreprocessorConfig:
-        """Return the resolved config (default if None)."""
-        if self.config is None:
-            return PreprocessorConfig()
-        return self.config
+    def __init__(
+        self,
+        deg: int = 3,
+        knots: int = 2,
+        mesh_choice: str = "percentile",
+        distance_measure: str = "euclidean",
+        custom_dist_mesh: np.ndarray | None = None,
+        custom_predictor_mesh: np.ndarray | None = None,
+        extrapolation: str = "clip",
+    ):
+        self.deg = deg
+        self.knots = knots
+        self.mesh_choice = mesh_choice
+        self.distance_measure = distance_measure
+        self.custom_dist_mesh = custom_dist_mesh
+        self.custom_predictor_mesh = custom_predictor_mesh
+        self.extrapolation = extrapolation
 
     def fit(self, X: pd.DataFrame | np.ndarray, y=None) -> "GDMPreprocessor":
         """Fit the preprocessor by computing spline meshes from training data.
@@ -73,8 +96,6 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         -------
         self
         """
-        cfg = self._get_config()
-
         if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
 
@@ -90,23 +111,23 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             predictor_names = []
 
         n_sites = X.shape[0]
-        n_spline_bases = cfg.deg + cfg.knots
+        n_spline_bases = self.deg + self.knots
 
         # Build predictor mesh
         if X_values.shape[1] > 0:
             n_predictors = X_values.shape[1]
-            n_knot_points = cfg.knots + 2
+            n_knot_points = self.knots + 2
 
-            if cfg.mesh_choice == "percentile":
+            if self.mesh_choice == "percentile":
                 predictor_mesh = np.percentile(
                     X_values, np.linspace(0, 100, n_knot_points), axis=0
                 ).T
-            elif cfg.mesh_choice == "even":
+            elif self.mesh_choice == "even":
                 min_vals = X_values.min(axis=0)
                 max_vals = X_values.max(axis=0)
                 predictor_mesh = np.linspace(min_vals, max_vals, n_knot_points, axis=0).T
             else:  # custom
-                predictor_mesh = cfg.custom_predictor_mesh
+                predictor_mesh = self.custom_predictor_mesh
                 if predictor_mesh is None:
                     raise ValueError(
                         "custom_predictor_mesh must be provided for mesh_choice='custom'"
@@ -136,10 +157,10 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         pw_distance = self.pw_distance(location_values)
 
         # Build distance mesh
-        if cfg.custom_dist_mesh is not None:
-            dist_mesh = cfg.custom_dist_mesh
+        if self.custom_dist_mesh is not None:
+            dist_mesh = self.custom_dist_mesh
         else:
-            dist_n_knot_points = cfg.knots + 2
+            dist_n_knot_points = self.knots + 2
             dist_mesh = np.percentile(pw_distance, np.linspace(0, 100, dist_n_knot_points))
 
             unique_vals = np.unique(dist_mesh)
@@ -158,7 +179,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         if X_values.shape[1] > 0:
             X_clipped = np.clip(X_values, predictor_mesh[:, 0], predictor_mesh[:, -1])
             I_spline_bases = np.column_stack([
-                Isplines(cfg.deg, predictor_mesh[i], X_clipped[:, i]).I(j)
+                Isplines(self.deg, predictor_mesh[i], X_clipped[:, i]).I(j)
                 for i in range(n_predictors)
                 for j in range(1, n_spline_bases + 1)
             ])
@@ -198,7 +219,6 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             Transformed feature matrix.
         """
         check_is_fitted(self)
-        cfg = self._get_config()
 
         if not isinstance(X, (pd.DataFrame, np.ndarray)):
             raise TypeError("X must be a Pandas DataFrame or numpy array")
@@ -213,7 +233,7 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             )
 
         predictor_mesh = self.predictor_mesh_
-        mode = cfg.extrapolation
+        mode = self.extrapolation
 
         # Out-of-range handling for environmental predictors
         NaN_mask_raw = np.isnan(X_values)
@@ -252,14 +272,12 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
 
         NaN_mask = np.isnan(X_values_clipped)
         X_clipped_nonan = X_values_clipped[~NaN_mask.any(axis=1)]
-        n_nan_rows = int((~valid_mask).sum())
 
-        cfg_obj = self._get_config()
         n_spline_bases = self.n_spline_bases_
 
         if X_clipped_nonan.shape[1] > 0 and predictor_mesh.shape[0] > 0:
             I_spline_bases = np.column_stack([
-                Isplines(cfg_obj.deg, predictor_mesh[i], X_clipped_nonan[:, i]).I(j)
+                Isplines(self.deg, predictor_mesh[i], X_clipped_nonan[:, i]).I(j)
                 for i in range(X_clipped_nonan.shape[1])
                 for j in range(1, n_spline_bases + 1)
             ])
@@ -284,7 +302,6 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
 
         pw_distance = self.pw_distance(location_values)
         dist_mesh = self.dist_mesh_
-        mode = cfg.extrapolation
         out_of_range_dist = (pw_distance < dist_mesh[0]) | (pw_distance > dist_mesh[-1])
         n_clipped_dist = int(out_of_range_dist.sum())
 
@@ -304,14 +321,14 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             if valid_dist.any():
                 dist_predictors[valid_dist] = np.column_stack([
                     Isplines(
-                        cfg_obj.deg, dist_mesh, pw_distance_processed[valid_dist]
+                        self.deg, dist_mesh, pw_distance_processed[valid_dist]
                     ).I(j)
                     for j in range(1, n_spline_bases + 1)
                 ])
         else:
             pw_distance_processed = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
             dist_predictors = np.column_stack([
-                Isplines(cfg_obj.deg, dist_mesh, pw_distance_processed).I(j)
+                Isplines(self.deg, dist_mesh, pw_distance_processed).I(j)
                 for j in range(1, n_spline_bases + 1)
             ])
 
@@ -330,16 +347,10 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         np.ndarray
             Condensed pairwise distance vector.
         """
-        cfg = self._get_config()
-        distance_measure = cfg.distance_measure
-
-        if distance_measure == "geodesic":
+        if self.distance_measure == "geodesic":
             # location_values columns are [xc, yc] = [lon, lat]; geopy geodesic expects (lat, lon)
             return pdist(location_values, lambda u, v: geodesic((u[1], u[0]), (v[1], v[0])).kilometers)
-        elif distance_measure == "euclidean":
-            return pdist(location_values, metric="euclidean") / 1000.0
         else:
-            # Default to euclidean
             return pdist(location_values, metric="euclidean") / 1000.0
 
     def to_xarray(self) -> xr.Dataset:
@@ -368,44 +379,43 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             }
         )
         ds.attrs["predictor_names"] = json.dumps(self.predictor_names_)
-        cfg = self._get_config()
-        ds.attrs["deg"] = cfg.deg
-        ds.attrs["knots"] = cfg.knots
+        ds.attrs["deg"] = self.deg
+        ds.attrs["knots"] = self.knots
+        ds.attrs["mesh_choice"] = self.mesh_choice
+        ds.attrs["distance_measure"] = self.distance_measure
+        ds.attrs["extrapolation"] = self.extrapolation
         return ds
 
     @classmethod
-    def from_xarray(
-        cls, ds: xr.Dataset, config: "PreprocessorConfig | None" = None
-    ) -> "GDMPreprocessor":
+    def from_xarray(cls, ds: xr.Dataset) -> "GDMPreprocessor":
         """Reconstruct a fitted GDMPreprocessor from a saved xarray Dataset.
 
         Parameters
         ----------
         ds : xr.Dataset
             Dataset produced by ``to_xarray()`` or loaded from idata.constant_data.
-        config : PreprocessorConfig or None
-            Configuration to attach to the reconstructed preprocessor. If None,
-            a default PreprocessorConfig is used (only affects future transform calls).
 
         Returns
         -------
         GDMPreprocessor
         """
-        if config is None and "deg" in ds.attrs and "knots" in ds.attrs:
-            config = PreprocessorConfig(deg=int(ds.attrs["deg"]), knots=int(ds.attrs["knots"]))
-        obj = cls(config=config)
+        obj = cls(
+            deg=int(ds.attrs.get("deg", 3)),
+            knots=int(ds.attrs.get("knots", 2)),
+            mesh_choice=str(ds.attrs.get("mesh_choice", "percentile")),
+            distance_measure=str(ds.attrs.get("distance_measure", "euclidean")),
+            extrapolation=str(ds.attrs.get("extrapolation", "clip")),
+        )
         obj.predictor_mesh_ = ds["predictor_mesh"].values
         obj.dist_mesh_ = ds["dist_mesh"].values
         obj.location_values_train_ = ds["location_values_train"].values
         obj.I_spline_bases_ = ds["I_spline_bases_train"].values
         obj.length_scale_ = float(ds["length_scale"].values)
 
-        predictor_names_raw = ds.attrs.get("predictor_names", "[]")
-        obj.predictor_names_ = json.loads(predictor_names_raw)
+        obj.predictor_names_ = json.loads(ds.attrs.get("predictor_names", "[]"))
 
         obj.n_predictors_ = obj.predictor_mesh_.shape[0]
-        cfg = obj._get_config()
-        obj.n_spline_bases_ = cfg.deg + cfg.knots
+        obj.n_spline_bases_ = obj.deg + obj.knots
 
         return obj
 

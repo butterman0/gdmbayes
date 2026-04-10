@@ -53,6 +53,7 @@ GDM (models/gdm.py)                     ← frequentist sklearn estimator
     fit(X, y) → NNLS on I-spline features → coef_, predictor_importance_, explained_
 
 GDMPreprocessor (preprocessing/preprocessor.py)  ← sklearn transformer
+    params: deg, knots, mesh_choice, distance_measure, extrapolation, custom_*_mesh
     owns: I-spline mesh computation, pairwise distance, feature matrix assembly
     used by: spGDMM (as self.preprocessor) and GDM (as self.preprocessor_)
 ```

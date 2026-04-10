@@ -1,7 +1,7 @@
 """Configuration dataclasses for the spGDMM Bayesian estimator."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional, Union
 
 
 @dataclass
@@ -14,7 +14,7 @@ class SamplerConfig:
     target_accept: float = 0.95
     nuts_sampler: str = "nutpie"
     progressbar: bool = True
-    random_seed: Optional[int] = None
+    random_seed: int | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -45,8 +45,8 @@ class ModelConfig:
 
     This dataclass encapsulates the model-structure parameters for spGDMM:
     variance structure and spatial random effects.  Data-preprocessing settings
-    (spline degree, knots, distance measure, etc.) now live in
-    :class:`~gdmbayes.core._config.PreprocessorConfig`.
+    (spline degree, knots, distance measure, etc.) are direct parameters on
+    :class:`~gdmbayes.preprocessing.preprocessor.GDMPreprocessor`.
 
     Parameters
     ----------
@@ -87,8 +87,8 @@ class ModelConfig:
     """
 
     alpha_importance: bool = True
-    variance: Union[str, Callable] = "homogeneous"
-    spatial_effect: Union[str, Callable] = "none"
+    variance: str | Callable = "homogeneous"
+    spatial_effect: str | Callable = "none"
 
     def __post_init__(self):
         if isinstance(self.variance, str) and self.variance not in _VALID_VARIANCE:

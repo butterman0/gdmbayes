@@ -6,7 +6,6 @@ from scipy.optimize import nnls
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.utils.validation import check_is_fitted
 
-from ..preprocessing.config import PreprocessorConfig
 from ..preprocessing.preprocessor import GDMPreprocessor
 
 
@@ -20,17 +19,13 @@ class GDM(BaseEstimator, RegressorMixin):
     Parameters
     ----------
     splines : int, default 3
-        Degree of the I-spline polynomial basis (PreprocessorConfig.deg).
+        Degree of the I-spline polynomial basis.
         Total basis functions per predictor = splines + knots.
     knots : int, default 4
-        Number of mesh knot intervals for I-spline construction
-        (PreprocessorConfig.knots).
+        Number of mesh knot intervals for I-spline construction.
     geo : bool, default True
         Whether to include geographic distance as a predictor.
         Default matches R gdm.
-    preprocessor_config : PreprocessorConfig or None, default None
-        Override all preprocessor settings directly. When provided, takes
-        precedence over splines and knots.
 
     Attributes (set after fit)
     --------------------------
@@ -72,18 +67,13 @@ class GDM(BaseEstimator, RegressorMixin):
     >>> print(m.predictor_importance_, m.explained_)
     """
 
-    def __init__(self, splines=3, knots=4, geo=True, preprocessor_config=None):
+    def __init__(self, splines=3, knots=4, geo=True):
         self.splines = splines
         self.knots = knots
         self.geo = geo
-        self.preprocessor_config = preprocessor_config
 
     def _build_preprocessor(self) -> GDMPreprocessor:
-        if self.preprocessor_config is not None:
-            cfg = self.preprocessor_config
-        else:
-            cfg = PreprocessorConfig(deg=self.splines, knots=self.knots)
-        return GDMPreprocessor(config=cfg)
+        return GDMPreprocessor(deg=self.splines, knots=self.knots)
 
     def _get_X_gdm(self, X: pd.DataFrame) -> np.ndarray:
         """Transform site-level X to pairwise GDM feature matrix with intercept.
