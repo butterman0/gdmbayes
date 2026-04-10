@@ -16,7 +16,6 @@ from gdmbayes import (
     ModelConfig,
     PreprocessorConfig,
     SamplerConfig,
-    holdout_pairs,
     site_pairs,
     spGDMM,
 )
@@ -540,39 +539,6 @@ class TestSpGDMMSklearnInterface:
         mesh_before = m.preprocessor.predictor_mesh_.copy()
         m._generate_and_preprocess_model_data(X, y)
         np.testing.assert_array_equal(m.preprocessor.predictor_mesh_, mesh_before)
-
-
-class TestHoldoutCV:
-    """Tests for holdout_pairs / site_pairs utility functions."""
-
-    def test_holdout_pairs_basic(self):
-        """holdout_pairs returns pairs where either site is in test set."""
-        n_sites = 5
-        test_sites = [3, 4]
-        idx = holdout_pairs(n_sites, test_sites)
-        all_row, all_col = np.triu_indices(n_sites, k=1)
-        for i in idx:
-            assert all_row[i] in test_sites or all_col[i] in test_sites
-
-    def test_holdout_pairs_count(self):
-        """holdout_pairs with k test sites out of n should return n*(n-1)/2 - (n-k)*(n-k-1)/2."""
-        n_sites = 10
-        test_sites = [7, 8, 9]
-        idx = holdout_pairs(n_sites, test_sites)
-        n_train = n_sites - len(test_sites)
-        expected = n_sites * (n_sites - 1) // 2 - n_train * (n_train - 1) // 2
-        assert len(idx) == expected
-
-    def test_holdout_pairs_disjoint_from_site_pairs(self):
-        """holdout_pairs and site_pairs(train) should partition all pairs."""
-        n_sites = 10
-        test_sites = [7, 8, 9]
-        train_sites = [i for i in range(n_sites) if i not in test_sites]
-        hold_idx = holdout_pairs(n_sites, test_sites)
-        train_idx = site_pairs(n_sites, train_sites)
-        total = n_sites * (n_sites - 1) // 2
-        assert len(hold_idx) + len(train_idx) == total
-        assert len(set(hold_idx) & set(train_idx)) == 0
 
 
 class TestGPConditionalPredict:

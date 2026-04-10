@@ -210,7 +210,7 @@ if args.mode in ("freq", "both"):
 # 2. Bayesian spGDMM — 8 model configurations × 5-fold CV
 # ---------------------------------------------------------------------------
 if args.mode in ("bayes", "both"):
-    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs, holdout_pairs
+    from gdmbayes import spGDMM, ModelConfig, SamplerConfig, PreprocessorConfig, site_pairs
     from sklearn.model_selection import KFold
 
     # Model grid matching White et al. (2024) Table 1 (Models 1-9)
@@ -282,24 +282,36 @@ if args.mode in ("bayes", "both"):
                 full_model.save(out_nc)
                 print(f"  Full-data model saved to {out_nc}")
 
-        # --- Masked-holdout CV (White et al. 2024 strategy) ---
+        # --- Standard sklearn CV — fit on training sites, predict on test sites ---
         fold_metrics = []
 
         for fold, (train_sites, test_sites) in enumerate(
             itertools.islice(kf.split(np.arange(n_sites)), args.n_folds)
         ):
-            hold_idx = holdout_pairs(n_sites, test_sites)
-            mask = np.zeros(n_pairs, dtype=bool)
-            mask[hold_idx] = True
+            train_pair_idx = site_pairs(n_sites, train_sites)
+            test_pair_idx  = site_pairs(n_sites, test_sites)
             print(f"  Fold {fold + 1}/{args.n_folds} — {len(train_sites)} train sites, "
-                  f"{len(test_sites)} test sites, {mask.sum()} held-out pairs")
+                  f"{len(test_sites)} test sites, {len(test_pair_idx)} test pairs")
             cv_model = make_spgdmm()
-            cv_model.fit(X, y, holdout_mask=mask)
-            result = cv_model.extract_holdout_predictions()
+            cv_model.fit(
+                X.iloc[train_sites].reset_index(drop=True),
+                y[train_pair_idx],
+            )
+            import arviz as az
+            rhat = az.rhat(cv_model.idata_)
+            rhat_max = float(rhat.to_array().max())
+            rhat_vars = {v: float(rhat[v].max()) for v in rhat.data_vars}
+            print(f"  R-hat max: {rhat_max:.4f}  per-var: "
+                  + "  ".join(f"{k}={v:.3f}" for k, v in rhat_vars.items()))
+            log_y_post = cv_model.predict_posterior(
+                X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
+            )
+            y_samples = np.minimum(1.0, np.exp(log_y_post.values))
+            y_pred_mean = y_samples.mean(axis=-1)
             fold_metrics.append({
-                "rmse": rmse(y[result["hold_idx"]], result["y_pred_mean"]),
-                "mae": mae(y[result["hold_idx"]], result["y_pred_mean"]),
-                "crps": crps_ensemble(y[result["hold_idx"]], result["y_pred_samples"]).mean(),
+                "rmse": rmse(y[test_pair_idx], y_pred_mean),
+                "mae":  mae( y[test_pair_idx], y_pred_mean),
+                "crps": crps_ensemble(y[test_pair_idx], y_samples).mean(),
             })
 
         r_cv = np.mean([m["rmse"] for m in fold_metrics])
@@ -330,16 +342,19 @@ if args.mode in ("bayes", "both"):
 
     metrics_path = os.path.join(args.output_dir, "gcfr_cv_metrics.csv")
     new_df = pd.DataFrame(all_cv_metrics)
-    if os.path.exists(metrics_path):
-        existing = pd.read_csv(metrics_path)
-        mask = ~(
-            existing["config_tag"].isin(new_df["config_tag"]) &
-            (existing["seed"] == args.seed) &
-            (existing["n_folds"] == args.n_folds)
-        )
-        existing = existing[mask]
-        new_df = pd.concat([existing, new_df], ignore_index=True)
-    new_df.to_csv(metrics_path, index=False)
+    import fcntl
+    with open(metrics_path + ".lock", "w") as _csv_lock:
+        fcntl.flock(_csv_lock, fcntl.LOCK_EX)
+        if os.path.exists(metrics_path):
+            existing = pd.read_csv(metrics_path)
+            mask = ~(
+                existing["config_tag"].isin(new_df["config_tag"]) &
+                (existing["seed"] == args.seed) &
+                (existing["n_folds"] == args.n_folds)
+            )
+            existing = existing[mask]
+            new_df = pd.concat([existing, new_df], ignore_index=True)
+        new_df.to_csv(metrics_path, index=False)
     print(f"\nCV metrics saved to {metrics_path}")
 
 print("\nDone.")

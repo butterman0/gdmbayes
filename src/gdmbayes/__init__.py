@@ -10,37 +10,36 @@ from . import version  # noqa: F401
 __version__ = version.__version__
 
 # Core Bayesian model
-from .models.spgdmm import spGDMM
+# Model configuration
+from .models.config import ModelConfig, SamplerConfig
 
 # Frequentist GDM
 from .models.gdm import GDM
 
-# Model configuration
-from .models.config import ModelConfig, SamplerConfig
+# Built-in spatial effect functions
+from .models.spatial import (
+    SPATIAL_FUNCTIONS,
+    spatial_abs_diff,
+    spatial_squared_diff,
+)
+from .models.spgdmm import spGDMM
 
 # Built-in variance functions
 from .models.variance import (
-    variance_homogeneous,
-    variance_covariate_dependent,
-    variance_polynomial,
     VARIANCE_FUNCTIONS,
-)
-
-# Built-in spatial effect functions
-from .models.spatial import (
-    spatial_abs_diff,
-    spatial_squared_diff,
-    SPATIAL_FUNCTIONS,
+    variance_covariate_dependent,
+    variance_homogeneous,
+    variance_polynomial,
 )
 
 # Plotting
 from .plotting.plots import (
-    plot_isplines,
     plot_crps_comparison,
-    summarise_sampling,
+    plot_isplines,
     plot_ppc,
-    rgb_from_biological_space,
     rgb_biological_space,
+    rgb_from_biological_space,
+    summarise_sampling,
 )
 
 # Preprocessing
@@ -48,7 +47,7 @@ from .preprocessing.config import PreprocessorConfig
 from .preprocessing.preprocessor import GDMPreprocessor
 
 # Utilities
-from .utils import site_pairs, holdout_pairs
+from .utils import site_pairs
 
 __all__ = [
     # Version
@@ -76,7 +75,6 @@ __all__ = [
     "GDMPreprocessor",
     # Utilities
     "site_pairs",
-    "holdout_pairs",
     # Plotting
     "plot_isplines",
     "plot_crps_comparison",
