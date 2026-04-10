@@ -25,8 +25,9 @@ class GDM(BaseEstimator, RegressorMixin):
     knots : int, default 4
         Number of mesh knot intervals for I-spline construction
         (PreprocessorConfig.knots).
-    geo : bool, default False
+    geo : bool, default True
         Whether to include geographic distance as a predictor.
+        Default matches R gdm.
     preprocessor_config : PreprocessorConfig or None, default None
         Override all preprocessor settings directly. When provided, takes
         precedence over splines and knots.
@@ -71,7 +72,7 @@ class GDM(BaseEstimator, RegressorMixin):
     >>> print(m.predictor_importance_, m.explained_)
     """
 
-    def __init__(self, splines=3, knots=4, geo=False, preprocessor_config=None):
+    def __init__(self, splines=3, knots=4, geo=True, preprocessor_config=None):
         self.splines = splines
         self.knots = knots
         self.geo = geo
@@ -252,6 +253,8 @@ class GDM(BaseEstimator, RegressorMixin):
     def score(self, X: pd.DataFrame, y: np.ndarray) -> float:
         """Fraction of null deviance explained on given data.
 
+        Matches R gdm's ``explained`` metric: 1 - model_deviance / null_deviance.
+
         Parameters
         ----------
         X : pd.DataFrame
@@ -262,17 +265,24 @@ class GDM(BaseEstimator, RegressorMixin):
         Returns
         -------
         float
-            1 - SS_res / SS_tot on the link scale.
+            1 - model_deviance / null_deviance (binomial deviance ratio).
         """
         check_is_fitted(self)
         y = np.asarray(y, dtype=float)
-        y_clipped = np.clip(y, 1e-10, 1 - 1e-10)
-        g = -np.log1p(-y_clipped)
-        X_gdm = self._get_X_gdm(X)
-        g_hat = X_gdm @ self.coef_
-        ss_res = float(np.sum((g - g_hat) ** 2))
-        ss_tot = float(np.sum((g - np.mean(g)) ** 2))
-        return (1.0 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+        eps = 1e-8
+        mu_pred = np.clip(1.0 - np.exp(-(self._get_X_gdm(X) @ self.coef_)), eps, 1 - eps)
+        mu_null = np.clip(np.full_like(y, np.mean(y)), eps, 1 - eps)
+        y_safe = np.clip(y, eps, 1 - eps)
+
+        def _deviance(y_vals, mu_vals):
+            t1 = np.where(y_vals < eps, 0.0, y_vals * np.log(y_vals / mu_vals))
+            t2 = np.where(y_vals > 1 - eps, 0.0,
+                          (1 - y_vals) * np.log((1 - y_vals) / (1 - mu_vals)))
+            return 2.0 * np.sum(t1 + t2)
+
+        null_dev = _deviance(y_safe, mu_null)
+        model_dev = _deviance(y_safe, mu_pred)
+        return float(1.0 - model_dev / null_dev) if null_dev > 0 else 0.0
 
 
 __all__ = ["GDM"]
