@@ -142,78 +142,6 @@ class spGDMM(BaseEstimator):
         s = self._config.spatial_effect
         return s if isinstance(s, str) else "custom"
 
-    def _generate_and_preprocess_model_data(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-    ) -> None:
-        """Preprocess model data before fitting.
-
-        Fits spline meshes from ``X`` (training sites only), then builds the
-        pairwise feature matrix and variance model state.  For out-of-sample
-        prediction at new sites, the GP is conditioned on the training posterior
-        via ``gp.conditional()`` inside ``predict()``.
-
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Training site-level data with columns [xc, yc, time_idx, predictor1, ...].
-        y : pd.Series
-            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2)
-            for training-site pairs only.
-        """
-        if isinstance(X, np.ndarray):
-            X = pd.DataFrame(X)
-
-        y_array = np.asarray(y, dtype=float)
-
-        self.X_ = X
-        self.y_ = y_array
-        self.log_y_ = np.log(np.maximum(y_array, np.finfo(float).eps))
-        if hasattr(X, "columns"):
-            self.feature_names_in_ = np.array(X.columns)
-
-        # Fit the preprocessor on training sites only (skips refitting on load path).
-        try:
-            check_is_fitted(self.preprocessor)
-        except NotFittedError:
-            self.preprocessor.fit(X)
-        prep = self.preprocessor
-
-        # Pairwise I-spline diffs + distance splines for train-train pairs.
-        self.X_GDM_ = prep.transform(X)
-        self.n_features_in_ = prep.n_predictors_
-
-        # Build orthogonal polynomial basis for covariate-dependent variance.
-        # Matches White et al.'s R code: X_sigma = cbind(1, poly(vec_distance, 3))
-        # Fitted from training-pair distances only; applied to test pairs via
-        # _build_sigma_basis() in _predict_gp_conditional().
-        if self._variance_type == "covariate_dependent":
-            pw_dist = prep.pw_distance(prep.location_values_train_)
-            pw_dist_clipped = np.clip(pw_dist, prep.dist_mesh_[0], prep.dist_mesh_[-1])
-            _, alpha, norm2 = poly_fit(pw_dist_clipped, degree=3)
-            self._poly_alpha = alpha
-            self._poly_norm2 = norm2
-            poly_cols = poly_predict(pw_dist_clipped, alpha, norm2)
-            self._X_sigma = np.column_stack([np.ones(len(pw_dist)), poly_cols])
-        else:
-            self._X_sigma = None
-            self._poly_alpha = None
-            self._poly_norm2 = None
-
-    def _build_sigma_basis(self, pw_distance: np.ndarray) -> np.ndarray:
-        """Build orthogonal polynomial basis for covariate-dependent variance.
-
-        Applies the same orthogonal polynomial transform (matching R's
-        ``poly()``) computed at training time to a new vector of pairwise
-        distances, then prepends a column of ones (matching White et al.'s
-        ``cbind(1, poly(vec_distance, 3))``).
-        """
-        dist_mesh = self.preprocessor.dist_mesh_
-        pw_dist = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
-        poly_cols = poly_predict(pw_dist, self._poly_alpha, self._poly_norm2)
-        return np.column_stack([np.ones(len(pw_dist)), poly_cols])
-
     def build_model(
         self,
         X: "pd.DataFrame | None" = None,
@@ -350,191 +278,142 @@ class spGDMM(BaseEstimator):
 
         self.model_ = model
 
-    def _data_setter(
+    def fit(
         self,
-        X: pd.DataFrame | np.ndarray,
-        y: pd.Series | np.ndarray | None = None,
-    ) -> None:
-        """Update mutable data containers in the existing model for prediction.
-
-        When predicting at new sites (different count from training), and a spatial
-        effect is active, delegates to ``_predict_gp_conditional()`` which uses
-        ``gp.conditional()`` (GP kriging) to obtain ``psi`` at new locations.
-        Result is stored in ``self._gp_pred_result`` for
-        ``sample_posterior_predictive()`` to consume.
-
-        For same-count prediction (e.g. full-data posterior predictive), updates
-        ``pm.Data`` containers in place via ``pm.set_data()``.
+        X: pd.DataFrame,
+        y: pd.Series | None = None,
+        progressbar: bool = True,
+        random_seed=None,
+        **kwargs,
+    ) -> "spGDMM":
         """
-        if self.idata_ is None or "posterior" not in self.idata_:
-            raise ValueError("Model must be fitted before predicting.")
+        Fit the model on training data.
 
-        if not isinstance(X, pd.DataFrame):
+        Parameters
+        ----------
+        X : pd.DataFrame
+            Training site-level data with columns [xc, yc, time_idx, predictor1, ...].
+            Pass only training sites; for cross-validation, subset with
+            ``X.iloc[train_sites].reset_index(drop=True)``.
+        y : array-like
+            Pairwise Bray-Curtis dissimilarities for training-site pairs
+            (length n_train*(n_train-1)//2).  Use ``site_pairs(n_sites, train_sites)``
+            to extract the correct subset from the full pairwise vector.
+        progressbar : bool
+            Whether to display a progress bar during sampling.
+        random_seed : int or None
+            Random seed for reproducibility.
+        **kwargs
+            Additional keyword arguments forwarded to the sampler.
+
+        Returns
+        -------
+        self : spGDMM
+            The fitted estimator. Access inference data via ``self.idata_``.
+            Call ``predict(X_test)`` for out-of-sample predictions; the GP
+            spatial effect is conditioned on the training posterior via kriging.
+        """
+        if y is None:
+            raise ValueError(
+                "y is required for fit(). Pass pairwise dissimilarities "
+                "(length n_train*(n_train-1)//2)."
+            )
+
+        sampler_args: dict = {**self.sampler_config, "progressbar": progressbar, **kwargs}
+        if random_seed is not None:
+            sampler_args["random_seed"] = random_seed
+
+        y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
+
+        self.build_model(X, y_series.values)
+
+        self.idata_ = self._sample_model(sampler_args=sampler_args)
+
+        # Save only site-level X in fit_data. Pair-level y is recoverable from
+        # idata.constant_data["log_y_data"]. Concatenating X (n_sites rows) with
+        # y_series (n_pairs rows) misaligns pandas indices and inflates fit_data to
+        # n_pairs rows, causing n_sites to be reconstructed as n_pairs on load().
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=UserWarning,
+                message="The group fit_data is not defined in the InferenceData scheme",
+            )
+            self.idata_.add_groups(fit_data=X.to_xarray())
+
+        return self
+
+    def _generate_and_preprocess_model_data(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+    ) -> None:
+        """Preprocess model data before fitting.
+
+        Fits spline meshes from ``X`` (training sites only), then builds the
+        pairwise feature matrix and variance model state.  For out-of-sample
+        prediction at new sites, the GP is conditioned on the training posterior
+        via ``gp.conditional()`` inside ``predict()``.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            Training site-level data with columns [xc, yc, time_idx, predictor1, ...].
+        y : pd.Series
+            Pairwise Bray-Curtis dissimilarities (length n_sites*(n_sites-1)//2)
+            for training-site pairs only.
+        """
+        if isinstance(X, np.ndarray):
             X = pd.DataFrame(X)
 
-        n_pred_sites = len(X)
-        n_train_sites = self.preprocessor.location_values_train_.shape[0]
+        y_array = np.asarray(y, dtype=float)
 
-        # Route to GP conditional for new-site prediction when a spatial effect is active.
-        if self._spatial_type != "none" and n_pred_sites != n_train_sites:
-            self._predict_gp_conditional(X)
-            return
+        self.X_ = X
+        self.y_ = y_array
+        self.log_y_ = np.log(np.maximum(y_array, np.finfo(float).eps))
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = np.array(X.columns)
 
-        X_transformed = self.preprocessor.transform(X)
-        n_pred_pairs = X_transformed.shape[0]
-
-        if y is None:
-            log_y = np.zeros(n_pred_pairs)
-        else:
-            log_y = np.log(np.maximum(np.asarray(y, dtype=float), np.finfo(float).eps))
-
-        set_data_dict: dict = {"X_data": X_transformed, "log_y_data": log_y}
-
-        # For covariate_dependent variance: update X_sigma_data with pairwise distances
-        # for the prediction sites so its shape matches X_data.
-        if self._X_sigma is not None:
-            pred_locations = X.iloc[:, :2].values
-            pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
-            set_data_dict["X_sigma_data"] = self._build_sigma_basis(pw_dist_pred)
-
-        # For spatial models: recompute pair indices for the prediction sites so the
-        # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
-        # via the quadratic formula: n_pairs = n*(n-1)/2.
-        if self._spatial_type != "none":
-            pred_row_ind, pred_col_ind = np.triu_indices(n_pred_sites, k=1)
-            set_data_dict["row_indices"] = pred_row_ind.astype(np.int32)
-            set_data_dict["col_indices"] = pred_col_ind.astype(np.int32)
-
-        with self.model_:
-            pm.set_data(
-                set_data_dict,
-                coords={"obs_pair": np.arange(n_pred_pairs)},
-            )
-
-    def _predict_gp_conditional(self, X_pred: pd.DataFrame) -> None:
-        """Build and sample GP conditional predictions for new (test) sites.
-
-        Called by ``_data_setter()`` when the number of prediction sites differs
-        from the number of training sites and a spatial effect is active.
-
-        Strategy: sample ``psi_pred`` from the GP conditional via PyMC (so that
-        the conditioning on training-site posterior is handled correctly), then
-        assemble the full linear predictor and draw posterior predictive samples
-        in NumPy.  This avoids pytensor batch-dimension shape conflicts that arise
-        when mixing a batched GP conditional with other model RVs inside
-        ``pm.sample_posterior_predictive``.
-
-        Result is stored in ``self._gp_pred_result`` (ndarray, shape
-        ``(n_chains, n_draws, n_pred_pairs)``) for ``sample_posterior_predictive()``
-        to consume.
-        """
+        # Fit the preprocessor on training sites only (skips refitting on load path).
+        try:
+            check_is_fitted(self.preprocessor)
+        except NotFittedError:
+            self.preprocessor.fit(X)
         prep = self.preprocessor
-        n_pred = len(X_pred)
-        n_pred_pairs = n_pred * (n_pred - 1) // 2
-        row_p, col_p = np.triu_indices(n_pred, k=1)
 
-        # Feature matrix for pred-pred pairs (uses already-fitted meshes).
-        X_pred_features = prep.transform(X_pred)   # (n_pred_pairs, J)
+        # Pairwise I-spline diffs + distance splines for train-train pairs.
+        self.X_GDM_ = prep.transform(X)
+        self.n_features_in_ = prep.n_predictors_
 
-        # GP coordinates in km (matching training convention).
-        pred_coords = X_pred.iloc[:, :2].values / 1000.0
-
-        # Variance basis for covariate_dependent.
-        X_sigma_pred = None
-        if self._variance_type == "covariate_dependent" and self._poly_alpha is not None:
-            pw_dist_pred = prep.pw_distance(X_pred.iloc[:, :2].values)
-            X_sigma_pred = self._build_sigma_basis(pw_dist_pred)   # (n_pred_pairs, 4)
-
-        # Unique suffix — prevents name clashes across repeated predict() calls.
-        self._pred_call_count = getattr(self, "_pred_call_count", 0) + 1
-        sfx = self._pred_call_count
-        psi_name = f"psi_pred_{sfx}"
-
-        # --- Step 1: sample psi_pred via PyMC GP conditional ---
-        # For each posterior sample (psi_train_s, length_scale_s, sig2_psi_s), PyMC
-        # draws psi_pred_s from the conditional MvNormal.  This correctly propagates
-        # all GP hyperparameter uncertainty to the prediction locations.
-        with self.model_:
-            self.gp_.conditional(psi_name, pred_coords)
-            psi_idata = pm.sample_posterior_predictive(
-                self.idata_, var_names=[psi_name], progressbar=False
-            )
-
-        # psi_samples: (chains, draws, n_pred_sites)
-        psi_samples = psi_idata.posterior_predictive[psi_name].values
-        n_chains, n_draws = psi_samples.shape[:2]
-        n_samples = n_chains * n_draws
-        psi_flat = psi_samples.reshape(n_samples, n_pred)   # (n_samples, n_pred_sites)
-
-        # --- Step 2: extract posterior parameter samples from idata ---
-        post = self.idata_.posterior
-        beta_0 = post["beta_0"].values.reshape(n_samples)           # (n_samples,)
-        beta   = post["beta"].values.reshape(n_samples, -1)         # (n_samples, J)
-
-        # --- Step 3: linear predictor (vectorised NumPy) ---
-        # env + intercept: (n_samples, n_pred_pairs)
-        mu = beta_0[:, None] + (beta @ X_pred_features.T)
-
-        # spatial contribution
-        if self._spatial_type == "squared_diff":
-            diff = psi_flat[:, row_p] - psi_flat[:, col_p]   # (n_samples, n_pred_pairs)
-            mu = mu + diff ** 2
-        elif self._spatial_type == "abs_diff":
-            diff = psi_flat[:, row_p] - psi_flat[:, col_p]
-            mu = mu + np.abs(diff)
-        elif self._spatial_type == "custom":
-            # Custom callable: apply per sample (rare path)
-            spatial_contrib = np.stack([
-                np.asarray(self._config.spatial_effect(psi_flat[s], row_p, col_p))
-                for s in range(n_samples)
-            ])
-            mu = mu + spatial_contrib
-
-        # --- Step 4: variance ---
-        if self._variance_type == "homogeneous":
-            sigma2 = post["sigma2"].values.reshape(n_samples)[:, None]     # (n_samples, 1)
-        elif self._variance_type == "covariate_dependent" and X_sigma_pred is not None:
-            bs = post["beta_sigma"].values.reshape(n_samples, -1)           # (n_samples, 4)
-            log_s2 = np.clip(X_sigma_pred @ bs.T, -20, 20).T               # (n_samples, n_pred_pairs)
-            sigma2 = np.exp(log_s2)
-        elif self._variance_type == "polynomial":
-            bs = post["beta_sigma"].values.reshape(n_samples, -1)           # (n_samples, 4)
-            log_s2 = np.clip(
-                bs[:, 0:1] + bs[:, 1:2] * mu + bs[:, 2:3] * mu ** 2 + bs[:, 3:4] * mu ** 3,
-                -20, 20,
-            )
-            sigma2 = np.exp(log_s2)                                         # (n_samples, n_pred_pairs)
+        # Build orthogonal polynomial basis for covariate-dependent variance.
+        # Matches White et al.'s R code: X_sigma = cbind(1, poly(vec_distance, 3))
+        # Fitted from training-pair distances only; applied to test pairs via
+        # _build_sigma_basis() in _predict_gp_conditional().
+        if self._variance_type == "covariate_dependent":
+            pw_dist = prep.pw_distance(prep.location_values_train_)
+            pw_dist_clipped = np.clip(pw_dist, prep.dist_mesh_[0], prep.dist_mesh_[-1])
+            _, alpha, norm2 = poly_fit(pw_dist_clipped, degree=3)
+            self._poly_alpha = alpha
+            self._poly_norm2 = norm2
+            poly_cols = poly_predict(pw_dist_clipped, alpha, norm2)
+            self._X_sigma = np.column_stack([np.ones(len(pw_dist)), poly_cols])
         else:
-            sigma2 = post["sigma2"].values.reshape(n_samples)[:, None]
+            self._X_sigma = None
+            self._poly_alpha = None
+            self._poly_norm2 = None
 
-        # --- Step 5: draw posterior predictive samples ---
-        seed = self.sampler_config.get("random_seed", None) if hasattr(self, "sampler_config") else None
-        rng = np.random.default_rng(seed)
-        log_y_samples = rng.normal(mu, np.sqrt(sigma2))   # (n_samples, n_pred_pairs)
+    def _build_sigma_basis(self, pw_distance: np.ndarray) -> np.ndarray:
+        """Build orthogonal polynomial basis for covariate-dependent variance.
 
-        # Store as (chains, draws, pairs) for consistent handling in sample_posterior_predictive.
-        self._gp_pred_result = log_y_samples.reshape(n_chains, n_draws, n_pred_pairs)
-
-    def _save_input_params(self, idata: az.InferenceData) -> None:
-        """Persist transformation state (meshes, coordinates) in idata.constant_data.
-
-        Delegates to ``self.preprocessor.to_xarray()`` so that models can be
-        serialized and reloaded for prediction without refitting.
+        Applies the same orthogonal polynomial transform (matching R's
+        ``poly()``) computed at training time to a new vector of pairwise
+        distances, then prepends a column of ones (matching White et al.'s
+        ``cbind(1, poly(vec_distance, 3))``).
         """
-        ds = self.preprocessor.to_xarray()
-        idata.attrs["predictor_names"] = json.dumps(self.preprocessor.predictor_names_)
-        if hasattr(idata, "constant_data"):
-            # pm.sample already created constant_data for pm.Data variables — merge in place.
-            merged = idata.constant_data.merge(ds)
-            idata.constant_data = merged
-        else:
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    category=UserWarning,
-                    message="The group constant_data is not defined",
-                )
-                idata.add_groups(constant_data=ds)
+        dist_mesh = self.preprocessor.dist_mesh_
+        pw_dist = np.clip(pw_distance, dist_mesh[0], dist_mesh[-1])
+        poly_cols = poly_predict(pw_dist, self._poly_alpha, self._poly_norm2)
+        return np.column_stack([np.ones(len(pw_dist)), poly_cols])
 
     # ------------------------------------------------------------------ #
     # Lifecycle methods (inlined from ModelBuilder, bugs fixed)
@@ -746,134 +625,26 @@ class spGDMM(BaseEstimator):
         self._save_input_params(idata)
         return idata
 
-    def fit(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series | None = None,
-        progressbar: bool = True,
-        random_seed=None,
-        **kwargs,
-    ) -> "spGDMM":
+    def _save_input_params(self, idata: az.InferenceData) -> None:
+        """Persist transformation state (meshes, coordinates) in idata.constant_data.
+
+        Delegates to ``self.preprocessor.to_xarray()`` so that models can be
+        serialized and reloaded for prediction without refitting.
         """
-        Fit the model on training data.
-
-        Parameters
-        ----------
-        X : pd.DataFrame
-            Training site-level data with columns [xc, yc, time_idx, predictor1, ...].
-            Pass only training sites; for cross-validation, subset with
-            ``X.iloc[train_sites].reset_index(drop=True)``.
-        y : array-like
-            Pairwise Bray-Curtis dissimilarities for training-site pairs
-            (length n_train*(n_train-1)//2).  Use ``site_pairs(n_sites, train_sites)``
-            to extract the correct subset from the full pairwise vector.
-        progressbar : bool
-            Whether to display a progress bar during sampling.
-        random_seed : int or None
-            Random seed for reproducibility.
-        **kwargs
-            Additional keyword arguments forwarded to the sampler.
-
-        Returns
-        -------
-        self : spGDMM
-            The fitted estimator. Access inference data via ``self.idata_``.
-            Call ``predict(X_test)`` for out-of-sample predictions; the GP
-            spatial effect is conditioned on the training posterior via kriging.
-        """
-        if y is None:
-            raise ValueError(
-                "y is required for fit(). Pass pairwise dissimilarities "
-                "(length n_train*(n_train-1)//2)."
-            )
-
-        sampler_args: dict = {**self.sampler_config, "progressbar": progressbar, **kwargs}
-        if random_seed is not None:
-            sampler_args["random_seed"] = random_seed
-
-        y_series = pd.Series(np.asarray(y, dtype=float), name=self.output_var)
-
-        self.build_model(X, y_series.values)
-
-        self.idata_ = self._sample_model(sampler_args=sampler_args)
-
-        # Save only site-level X in fit_data. Pair-level y is recoverable from
-        # idata.constant_data["log_y_data"]. Concatenating X (n_sites rows) with
-        # y_series (n_pairs rows) misaligns pandas indices and inflates fit_data to
-        # n_pairs rows, causing n_sites to be reconstructed as n_pairs on load().
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=UserWarning,
-                message="The group fit_data is not defined in the InferenceData scheme",
-            )
-            self.idata_.add_groups(fit_data=X.to_xarray())
-
-        return self
-
-    def save(self, fname: str) -> None:
-        """Save inference data to a file.
-
-        Parameters
-        ----------
-        fname : str
-            Path to the output file.
-        """
-        if self.idata_ is not None and "posterior" in self.idata_:
-            self.idata_.to_netcdf(str(fname))
+        ds = self.preprocessor.to_xarray()
+        idata.attrs["predictor_names"] = json.dumps(self.preprocessor.predictor_names_)
+        if hasattr(idata, "constant_data"):
+            # pm.sample already created constant_data for pm.Data variables — merge in place.
+            merged = idata.constant_data.merge(ds)
+            idata.constant_data = merged
         else:
-            raise RuntimeError("The model hasn't been fit yet, call .fit() first")
-
-    @classmethod
-    def load(cls, fname: str) -> "spGDMM":
-        """Load a fitted model from a file.
-
-        Parameters
-        ----------
-        fname : str
-            Path to a saved InferenceData file.
-
-        Returns
-        -------
-        spGDMM
-        """
-        filepath = Path(str(fname))
-        idata = az.from_netcdf(filepath)
-
-        model_config = ModelConfig.from_dict(json.loads(idata.attrs["model_config"]))
-        sampler_config = SamplerConfig.from_dict(json.loads(idata.attrs["sampler_config"]))
-
-        # Restore the fitted preprocessor from serialised state — no refitting needed.
-        preprocessor = GDMPreprocessor.from_xarray(idata.constant_data)
-
-        model = cls(
-            preprocessor=preprocessor,
-            model_config=model_config,
-            sampler_config=sampler_config,
-        )
-        model.idata_ = idata
-
-        # Populate metadata from stored training data using the already-fitted preprocessor.
-        # fit_data contains site-level X; pair-level y is recovered from constant_data.
-        fit_df = idata.fit_data.to_dataframe()
-        if "log_y" in fit_df.columns:
-            # Legacy format: X and y were concat'd with mismatched lengths. Recover X
-            # by dropping rows that are NaN (rows beyond n_sites), and y from constant_data.
-            X = fit_df.drop(columns=["log_y"]).dropna()
-        else:
-            X = fit_df
-        # y is stored as log_y_data (log-transformed) in constant_data; exp to recover.
-        log_y_stored = idata.constant_data["log_y_data"].values
-        y_raw = np.exp(log_y_stored)
-        model.build_model(X, y_raw)
-
-        if model.id != idata.attrs["id"]:
-            raise ValueError(
-                f"The file '{fname}' does not contain an inference data of the same model "
-                f"or configuration as '{cls._model_type}'"
-            )
-
-        return model
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    category=UserWarning,
+                    message="The group constant_data is not defined",
+                )
+                idata.add_groups(constant_data=ds)
 
     def predict(
         self,
@@ -1011,6 +782,235 @@ class spGDMM(BaseEstimator):
                     self.idata_ = prior_pred
         return az.extract(prior_pred, "prior_predictive", combined=combined)
 
+    def _data_setter(
+        self,
+        X: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray | None = None,
+    ) -> None:
+        """Update mutable data containers in the existing model for prediction.
+
+        When predicting at new sites (different count from training), and a spatial
+        effect is active, delegates to ``_predict_gp_conditional()`` which uses
+        ``gp.conditional()`` (GP kriging) to obtain ``psi`` at new locations.
+        Result is stored in ``self._gp_pred_result`` for
+        ``sample_posterior_predictive()`` to consume.
+
+        For same-count prediction (e.g. full-data posterior predictive), updates
+        ``pm.Data`` containers in place via ``pm.set_data()``.
+        """
+        if self.idata_ is None or "posterior" not in self.idata_:
+            raise ValueError("Model must be fitted before predicting.")
+
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X)
+
+        n_pred_sites = len(X)
+        n_train_sites = self.preprocessor.location_values_train_.shape[0]
+
+        # Route to GP conditional for new-site prediction when a spatial effect is active.
+        if self._spatial_type != "none" and n_pred_sites != n_train_sites:
+            self._predict_gp_conditional(X)
+            return
+
+        X_transformed = self.preprocessor.transform(X)
+        n_pred_pairs = X_transformed.shape[0]
+
+        if y is None:
+            log_y = np.zeros(n_pred_pairs)
+        else:
+            log_y = np.log(np.maximum(np.asarray(y, dtype=float), np.finfo(float).eps))
+
+        set_data_dict: dict = {"X_data": X_transformed, "log_y_data": log_y}
+
+        # For covariate_dependent variance: update X_sigma_data with pairwise distances
+        # for the prediction sites so its shape matches X_data.
+        if self._X_sigma is not None:
+            pred_locations = X.iloc[:, :2].values
+            pw_dist_pred = self.preprocessor.pw_distance(pred_locations)
+            set_data_dict["X_sigma_data"] = self._build_sigma_basis(pw_dist_pred)
+
+        # For spatial models: recompute pair indices for the prediction sites so the
+        # spatial term shape matches X_data.  n_pred_sites is recovered from n_pred_pairs
+        # via the quadratic formula: n_pairs = n*(n-1)/2.
+        if self._spatial_type != "none":
+            pred_row_ind, pred_col_ind = np.triu_indices(n_pred_sites, k=1)
+            set_data_dict["row_indices"] = pred_row_ind.astype(np.int32)
+            set_data_dict["col_indices"] = pred_col_ind.astype(np.int32)
+
+        with self.model_:
+            pm.set_data(
+                set_data_dict,
+                coords={"obs_pair": np.arange(n_pred_pairs)},
+            )
+
+    def _predict_gp_conditional(self, X_pred: pd.DataFrame) -> None:
+        """Build and sample GP conditional predictions for new (test) sites.
+
+        Called by ``_data_setter()`` when the number of prediction sites differs
+        from the number of training sites and a spatial effect is active.
+
+        Strategy: sample ``psi_pred`` from the GP conditional via PyMC (so that
+        the conditioning on training-site posterior is handled correctly), then
+        assemble the full linear predictor and draw posterior predictive samples
+        in NumPy.  This avoids pytensor batch-dimension shape conflicts that arise
+        when mixing a batched GP conditional with other model RVs inside
+        ``pm.sample_posterior_predictive``.
+
+        Result is stored in ``self._gp_pred_result`` (ndarray, shape
+        ``(n_chains, n_draws, n_pred_pairs)``) for ``sample_posterior_predictive()``
+        to consume.
+        """
+        prep = self.preprocessor
+        n_pred = len(X_pred)
+        n_pred_pairs = n_pred * (n_pred - 1) // 2
+        row_p, col_p = np.triu_indices(n_pred, k=1)
+
+        # Feature matrix for pred-pred pairs (uses already-fitted meshes).
+        X_pred_features = prep.transform(X_pred)   # (n_pred_pairs, J)
+
+        # GP coordinates in km (matching training convention).
+        pred_coords = X_pred.iloc[:, :2].values / 1000.0
+
+        # Variance basis for covariate_dependent.
+        X_sigma_pred = None
+        if self._variance_type == "covariate_dependent" and self._poly_alpha is not None:
+            pw_dist_pred = prep.pw_distance(X_pred.iloc[:, :2].values)
+            X_sigma_pred = self._build_sigma_basis(pw_dist_pred)   # (n_pred_pairs, 4)
+
+        # Unique suffix — prevents name clashes across repeated predict() calls.
+        self._pred_call_count = getattr(self, "_pred_call_count", 0) + 1
+        sfx = self._pred_call_count
+        psi_name = f"psi_pred_{sfx}"
+
+        # --- Step 1: sample psi_pred via PyMC GP conditional ---
+        # For each posterior sample (psi_train_s, length_scale_s, sig2_psi_s), PyMC
+        # draws psi_pred_s from the conditional MvNormal.  This correctly propagates
+        # all GP hyperparameter uncertainty to the prediction locations.
+        with self.model_:
+            self.gp_.conditional(psi_name, pred_coords)
+            psi_idata = pm.sample_posterior_predictive(
+                self.idata_, var_names=[psi_name], progressbar=False
+            )
+
+        # psi_samples: (chains, draws, n_pred_sites)
+        psi_samples = psi_idata.posterior_predictive[psi_name].values
+        n_chains, n_draws = psi_samples.shape[:2]
+        n_samples = n_chains * n_draws
+        psi_flat = psi_samples.reshape(n_samples, n_pred)   # (n_samples, n_pred_sites)
+
+        # --- Step 2: extract posterior parameter samples from idata ---
+        post = self.idata_.posterior
+        beta_0 = post["beta_0"].values.reshape(n_samples)           # (n_samples,)
+        beta   = post["beta"].values.reshape(n_samples, -1)         # (n_samples, J)
+
+        # --- Step 3: linear predictor (vectorised NumPy) ---
+        # env + intercept: (n_samples, n_pred_pairs)
+        mu = beta_0[:, None] + (beta @ X_pred_features.T)
+
+        # spatial contribution
+        if self._spatial_type == "squared_diff":
+            diff = psi_flat[:, row_p] - psi_flat[:, col_p]   # (n_samples, n_pred_pairs)
+            mu = mu + diff ** 2
+        elif self._spatial_type == "abs_diff":
+            diff = psi_flat[:, row_p] - psi_flat[:, col_p]
+            mu = mu + np.abs(diff)
+        elif self._spatial_type == "custom":
+            # Custom callable: apply per sample (rare path)
+            spatial_contrib = np.stack([
+                np.asarray(self._config.spatial_effect(psi_flat[s], row_p, col_p))
+                for s in range(n_samples)
+            ])
+            mu = mu + spatial_contrib
+
+        # --- Step 4: variance ---
+        if self._variance_type == "homogeneous":
+            sigma2 = post["sigma2"].values.reshape(n_samples)[:, None]     # (n_samples, 1)
+        elif self._variance_type == "covariate_dependent" and X_sigma_pred is not None:
+            bs = post["beta_sigma"].values.reshape(n_samples, -1)           # (n_samples, 4)
+            log_s2 = np.clip(X_sigma_pred @ bs.T, -20, 20).T               # (n_samples, n_pred_pairs)
+            sigma2 = np.exp(log_s2)
+        elif self._variance_type == "polynomial":
+            bs = post["beta_sigma"].values.reshape(n_samples, -1)           # (n_samples, 4)
+            log_s2 = np.clip(
+                bs[:, 0:1] + bs[:, 1:2] * mu + bs[:, 2:3] * mu ** 2 + bs[:, 3:4] * mu ** 3,
+                -20, 20,
+            )
+            sigma2 = np.exp(log_s2)                                         # (n_samples, n_pred_pairs)
+        else:
+            sigma2 = post["sigma2"].values.reshape(n_samples)[:, None]
+
+        # --- Step 5: draw posterior predictive samples ---
+        seed = self.sampler_config.get("random_seed", None) if hasattr(self, "sampler_config") else None
+        rng = np.random.default_rng(seed)
+        log_y_samples = rng.normal(mu, np.sqrt(sigma2))   # (n_samples, n_pred_pairs)
+
+        # Store as (chains, draws, pairs) for consistent handling in sample_posterior_predictive.
+        self._gp_pred_result = log_y_samples.reshape(n_chains, n_draws, n_pred_pairs)
+
+    def save(self, fname: str) -> None:
+        """Save inference data to a file.
+
+        Parameters
+        ----------
+        fname : str
+            Path to the output file.
+        """
+        if self.idata_ is not None and "posterior" in self.idata_:
+            self.idata_.to_netcdf(str(fname))
+        else:
+            raise RuntimeError("The model hasn't been fit yet, call .fit() first")
+
+    @classmethod
+    def load(cls, fname: str) -> "spGDMM":
+        """Load a fitted model from a file.
+
+        Parameters
+        ----------
+        fname : str
+            Path to a saved InferenceData file.
+
+        Returns
+        -------
+        spGDMM
+        """
+        filepath = Path(str(fname))
+        idata = az.from_netcdf(filepath)
+
+        model_config = ModelConfig.from_dict(json.loads(idata.attrs["model_config"]))
+        sampler_config = SamplerConfig.from_dict(json.loads(idata.attrs["sampler_config"]))
+
+        # Restore the fitted preprocessor from serialised state — no refitting needed.
+        preprocessor = GDMPreprocessor.from_xarray(idata.constant_data)
+
+        model = cls(
+            preprocessor=preprocessor,
+            model_config=model_config,
+            sampler_config=sampler_config,
+        )
+        model.idata_ = idata
+
+        # Populate metadata from stored training data using the already-fitted preprocessor.
+        # fit_data contains site-level X; pair-level y is recovered from constant_data.
+        fit_df = idata.fit_data.to_dataframe()
+        if "log_y" in fit_df.columns:
+            # Legacy format: X and y were concat'd with mismatched lengths. Recover X
+            # by dropping rows that are NaN (rows beyond n_sites), and y from constant_data.
+            X = fit_df.drop(columns=["log_y"]).dropna()
+        else:
+            X = fit_df
+        # y is stored as log_y_data (log-transformed) in constant_data; exp to recover.
+        log_y_stored = idata.constant_data["log_y_data"].values
+        y_raw = np.exp(log_y_stored)
+        model.build_model(X, y_raw)
+
+        if model.id != idata.attrs["id"]:
+            raise ValueError(
+                f"The file '{fname}' does not contain an inference data of the same model "
+                f"or configuration as '{cls._model_type}'"
+            )
+
+        return model
+
     def gdm_transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Transform site-level predictors to the biological importance scale.
 
@@ -1090,6 +1090,11 @@ class spGDMM(BaseEstimator):
         """Return the output variable name."""
         return "log_y"
 
+    @property
+    def _serializable_model_config(self) -> dict:
+        """Return serializable model config."""
+        return self._config.to_dict()
+
     @staticmethod
     def get_default_model_config() -> dict:
         """Return default model configuration."""
@@ -1107,11 +1112,6 @@ class spGDMM(BaseEstimator):
             "progressbar": True,
             "random_seed": None,
         }
-
-    @property
-    def _serializable_model_config(self) -> dict:
-        """Return serializable model config."""
-        return self._config.to_dict()
 
 
 __all__ = ["spGDMM"]
