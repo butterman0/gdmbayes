@@ -406,7 +406,7 @@ def rgb_biological_space(
     xr.DataArray
         Dims (time, xc, yc, rgb) with rgb in {R, G, B}, values in [0, 1].
     """
-    from ..preprocessing.preprocessor import GDMPreprocessor
+    from ..preprocessor import GDMPreprocessor
 
     preprocessor = GDMPreprocessor.from_xarray(idata.constant_data)
 

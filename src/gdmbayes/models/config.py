@@ -46,7 +46,7 @@ class ModelConfig:
     This dataclass encapsulates the model-structure parameters for spGDMM:
     variance structure and spatial random effects.  Data-preprocessing settings
     (spline degree, knots, distance measure, etc.) are direct parameters on
-    :class:`~gdmbayes.preprocessing.preprocessor.GDMPreprocessor`.
+    :class:`~gdmbayes.preprocessor.GDMPreprocessor`.
 
     Parameters
     ----------

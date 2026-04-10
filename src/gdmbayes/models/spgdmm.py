@@ -19,7 +19,7 @@ from sklearn.base import BaseEstimator
 from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 
-from ..preprocessing.preprocessor import GDMPreprocessor
+from ..preprocessor import GDMPreprocessor
 from .config import ModelConfig, SamplerConfig
 from .spatial import SPATIAL_FUNCTIONS
 from .variance import VARIANCE_FUNCTIONS, poly_fit, poly_predict

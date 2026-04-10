@@ -43,7 +43,7 @@ from .plotting.plots import (
 )
 
 # Preprocessing
-from .preprocessing.preprocessor import GDMPreprocessor
+from .preprocessor import GDMPreprocessor
 
 # Utilities
 from .utils import site_pairs
