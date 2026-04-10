@@ -12,49 +12,48 @@ Transformation state (spline knots, column indices, spatial metadata) is saved i
 
 `ModelConfig` now contains only Bayesian model-structure fields. Legacy preprocessing keys passed via `model_config` trigger a `DeprecationWarning`.
 
-## Masked-Holdout Cross-Validation
+## Cross-Validation — Standard sklearn fit/predict with GP Conditional
 
-### Motivation
+### Approach
 
-Standard train/test splitting drops test sites entirely and fits the model on training sites only. For spatial models with a GP random effect, this is problematic: the GP has never seen the test-site locations, so the spatial contribution `psi` at those locations is undefined. Masked-holdout CV solves this by fitting on **all** sites while masking held-out pairs as latent variables. The GP can then sample `psi` at every site (including test sites), and the held-out dissimilarities are predicted from the full model without having contributed to the likelihood.
+CV uses standard sklearn semantics: `fit(X_train, y_train)` / `predict(X_test)`.  Caller subsets sites and pairs before calling `fit`.
 
-### Which pairs are held out
+For spatial models with a GP random effect, predicting at test-site locations requires **GP kriging** — `psi_pred` at test sites is not known from fitting on training sites alone.  This is handled transparently inside `predict()` via `_predict_gp_conditional()`:
 
-A pair `(i, j)` is held out if **either** endpoint belongs to the test-site fold — not just test–test pairs. This prevents any information about test-site environments from leaking through the likelihood. The utility `holdout_pairs(n_sites, test_sites)` returns these indices; `site_pairs(n_sites, site_idx)` returns pairs where **both** endpoints are in a subset (used by the frequentist GDM which drops test sites entirely).
+1. `gp.conditional("psi_pred", pred_coords)` is registered in the fitted model context (PyMC knows how to sample from `p(psi_pred | psi_train, posterior_hyperparams)`).
+2. `pm.sample_posterior_predictive(idata, var_names=["psi_pred"])` draws `psi_pred` for each posterior sample.
+3. The full linear predictor and variance are assembled in NumPy using `psi_pred` samples and `idata.posterior` draws of `beta_0`, `beta`, `sigma2` / `beta_sigma`.
+4. `log_y_pred ~ Normal(mu, sigma)` is sampled in NumPy; result is returned as a `(n_chains, n_draws, n_pred_pairs)` array.
 
-### Likelihood split
+This avoids PyTensor graph shape conflicts that arise from mixing a batched GP conditional variable with existing model RVs inside `pm.sample_posterior_predictive`.
 
-The model is built on all `n*(n-1)/2` pairs but the likelihood is split into two terms:
+### Which pairs are evaluated
 
-- **Observed pairs** (`holdout_mask == False`): modelled with `pm.Censored(pm.Normal.dist(mu, sigma), upper=0)`, with the observed log-dissimilarity as data. The upper censoring at 0 (i.e. dissimilarity capped at 1 on the natural scale) handles the `y == 1` boundary.
-- **Held-out pairs** (`holdout_mask == True`): modelled as `pm.Normal("log_y_holdout", mu, sigma)` with no observed data. These are free latent random variables — the sampler draws from the posterior predictive distribution conditioned on the training-pair likelihood only.
+`site_pairs(n_sites, test_sites)` returns the `n_test*(n_test-1)/2` pairs where **both** endpoints are test sites.  These are the pairs passed to the CV metric computation.  `holdout_pairs` remains exported (returns pairs where **either** endpoint is a test site) but is no longer used by the main CV loop.
 
-Both terms share the same linear predictor `mu` (including the GP spatial effect) and variance model `sigma`, so the held-out predictions incorporate all model components.
+### GP conditional routing
 
-### Initialisation
-
-BFGS initial values (`_compute_initvals`) are computed from observed pairs only — the holdout mask filters `X_GDM`, `log_y`, pair indices, and `X_sigma` before optimisation so that held-out dissimilarities do not influence starting values.
-
-### Extracting predictions
-
-After sampling, `extract_holdout_predictions()` retrieves the posterior samples of `log_y_holdout` from `idata.posterior`, transforms them back to the dissimilarity scale via `Z = min(1, exp(log_V))`, and returns per-pair posterior means and full sample matrices. CV metrics (RMSE, MAE, CRPS) are computed against the true held-out dissimilarities.
+`_data_setter` routes to `_predict_gp_conditional` when `spatial_effect != "none"` and `len(X_pred) != len(X_train)`.  For same-size prediction (e.g. full-data posterior predictive after `fit`) or no spatial effect, the standard `pm.set_data` path is used.
 
 ### Usage
 
 ```python
-from gdmbayes import spGDMM, holdout_pairs
+from gdmbayes import spGDMM, site_pairs
 from sklearn.model_selection import KFold
 
 kf = KFold(n_splits=10, shuffle=True, random_state=42)
 for train_sites, test_sites in kf.split(np.arange(n_sites)):
-    hold_idx = holdout_pairs(n_sites, test_sites)
-    mask = np.zeros(n_pairs, dtype=bool)
-    mask[hold_idx] = True
+    train_pair_idx = site_pairs(n_sites, train_sites)
+    test_pair_idx  = site_pairs(n_sites, test_sites)
 
     model = make_spgdmm()
-    model.fit(X, y, holdout_mask=mask)
-    result = model.extract_holdout_predictions()
-    # result["y_pred_mean"], result["y_pred_samples"], result["hold_idx"]
+    model.fit(X.iloc[train_sites].reset_index(drop=True), y[train_pair_idx])
+    log_y_post = model.predict_posterior(
+        X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
+    )
+    y_samples = np.minimum(1.0, np.exp(log_y_post[model.output_var].values))
+    y_pred_mean = y_samples.mean(axis=-1)
+    # compute rmse, mae, crps against y[test_pair_idx]
 ```
 
 ## Concurrent File Locking

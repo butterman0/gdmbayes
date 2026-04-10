@@ -66,7 +66,7 @@ GDMPreprocessor (preprocessing/preprocessor.py)  ← sklearn transformer
 - **GP coordinate units**: The GP receives coordinates in km (raw coords ÷ 1000 for euclidean) so they match the `length_scale_` (also in km). PyMC's `Exponential` kernel uses `exp(-d/(2*ls))`, while White uses `exp(-d/rho)`, so `ls = rho/2`.
 - **`build_model(X, y)`**: Single entry point that preprocesses data (via `_generate_and_preprocess_model_data`) then builds the PyMC model. Called by `fit()` and `load()`. Can also be called with no args if preprocessing was already done.
 - **Orthogonal polynomial basis**: `poly_fit` / `poly_predict` in `variance.py` replicate R's `poly()` (QR on centered Vandermonde, three-term recurrence for prediction). Used only for `variance="covariate_dependent"` to build `X_sigma = [1, poly(distance, 3)]`.
-- **Masked-holdout CV**: see [docs/design_decisions.md](docs/design_decisions.md) for pm.Censored/pm.Normal architecture and the `holdout_pairs` / `extract_holdout_predictions` utilities.
+- **Standard sklearn CV with GP conditional**: `fit(X_train, y_train)` / `predict(X_test)`. When `n_pred != n_train` and a spatial effect is active, `_predict_gp_conditional()` fires inside `predict()`: samples `psi_pred` via `gp.conditional()` in PyMC, then assembles the full linear predictor in NumPy. `holdout_pairs` remains a utility export (complements `site_pairs`). See [docs/design_decisions.md](docs/design_decisions.md).
 - `ruff` line length is 100; rule E501 (line too long) is ignored.
 - Tests live inside the package at `src/gdmbayes/tests/`.
 
