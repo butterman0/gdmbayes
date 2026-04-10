@@ -24,7 +24,7 @@ echo "Start: $(date)"
 $PYTHON panama_example.py \
     --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
-    --draws 1000 --tune 4000 --chains 4 --seed ${SEED} \
+    --draws 500 --tune 2500 --chains 4 --seed ${SEED} \
     --n_folds 3 \
     --skip_full_model \
     --output_dir results/panama
