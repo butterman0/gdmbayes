@@ -1,8 +1,8 @@
 """Tests for plotting functions."""
 
 import numpy as np
-import pytest
-from gdmbayes.plotting import plot_isplines, plot_crps_comparison, summarise_sampling, plot_ppc
+
+from gdmbayes.plotting import plot_crps_comparison, plot_ppc, summarise_sampling
 
 
 class TestSummariseSampling:

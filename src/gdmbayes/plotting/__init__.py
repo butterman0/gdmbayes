@@ -1,12 +1,12 @@
 """Plotting utilities for spGDMM models."""
 
 from .plots import (
-    plot_isplines,
     plot_crps_comparison,
-    summarise_sampling,
+    plot_isplines,
     plot_ppc,
-    rgb_from_biological_space,
     rgb_biological_space,
+    rgb_from_biological_space,
+    summarise_sampling,
 )
 
 __all__ = [

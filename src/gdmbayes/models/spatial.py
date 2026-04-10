@@ -33,7 +33,7 @@ same signature to :class:`~gdmbayes.ModelConfig`:
 - Returns a PyTensor vector of length ``n_pairs`` to add to ``mu``.
 """
 
-from typing import Callable, Dict
+from collections.abc import Callable
 
 
 def spatial_abs_diff(psi, row_ind, col_ind):
@@ -56,7 +56,7 @@ def spatial_squared_diff(psi, row_ind, col_ind):
     return diff ** 2
 
 
-SPATIAL_FUNCTIONS: Dict[str, Callable] = {
+SPATIAL_FUNCTIONS: dict[str, Callable] = {
     "abs_diff": spatial_abs_diff,
     "squared_diff": spatial_squared_diff,
 }

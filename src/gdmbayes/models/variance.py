@@ -32,7 +32,7 @@ with the same signature to :class:`~gdmbayes.ModelConfig`:
 - Returns a PyTensor scalar or vector representing ``sigma²``.
 """
 
-from typing import Callable, Dict
+from collections.abc import Callable
 
 import numpy as np
 import pymc as pm
@@ -101,7 +101,7 @@ def variance_polynomial(mu, X_sigma):
     return pm.math.exp(pt.clip(poly, -20, 20))
 
 
-VARIANCE_FUNCTIONS: Dict[str, Callable] = {
+VARIANCE_FUNCTIONS: dict[str, Callable] = {
     "homogeneous": variance_homogeneous,
     "covariate_dependent": variance_covariate_dependent,
     "polynomial": variance_polynomial,
