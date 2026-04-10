@@ -2,7 +2,7 @@
 #SBATCH --job-name=sw-smoke
 #SBATCH --output=results/logs/sw_smoke_%A_%a.out
 #SBATCH --error=results/logs/sw_smoke_%A_%a.err
-#SBATCH --time=2:00:00
+#SBATCH --time=4:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --array=0,1,3,4,6,7
