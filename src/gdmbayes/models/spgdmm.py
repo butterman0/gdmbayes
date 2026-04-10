@@ -123,13 +123,6 @@ class spGDMM(BaseEstimator):
         # GP object — stored after build_model() for use in predict() via gp.conditional()
         self.gp_: pm.gp.Latent | None = None
 
-    def __sklearn_is_fitted__(self) -> bool:
-        """Return True only after a successful fit (idata with posterior exists)."""
-        return self.idata_ is not None and "posterior" in self.idata_
-
-    def _more_tags(self):
-        return {"no_validation": True, "non_deterministic": True}
-
     @property
     def _variance_type(self) -> str:
         """Return the variance type as a string ('custom' for callable)."""
@@ -141,142 +134,6 @@ class spGDMM(BaseEstimator):
         """Return the spatial effect type as a string ('custom' for callable)."""
         s = self._config.spatial_effect
         return s if isinstance(s, str) else "custom"
-
-    def build_model(
-        self,
-        X: "pd.DataFrame | None" = None,
-        y: "pd.Series | np.ndarray | None" = None,
-    ) -> None:
-        """Preprocess data (if provided) and build the PyMC model.
-
-        Parameters
-        ----------
-        X : pd.DataFrame, optional
-            Training site-level data. If provided together with ``y``, preprocessing
-            is run first via ``_generate_and_preprocess_model_data``.
-            If omitted, assumes preprocessing was already done (e.g. on
-            the load path).
-        y : array-like, optional
-            Pairwise dissimilarities (training pairs only). Required when ``X`` is provided.
-        """
-        self.gp_ = None  # reset; set below if spatial effect is active
-        if X is not None:
-            if y is None:
-                raise ValueError("y is required when X is provided.")
-            y_array = np.asarray(y, dtype=float)
-            self._generate_and_preprocess_model_data(X, y_array)
-        elif self.X_GDM_ is None:
-            raise ValueError("No preprocessed data. Pass X and y, or call fit().")
-
-        X_values = self.X_GDM_
-        log_y_values = self.log_y_
-
-        prep = self.preprocessor
-        n_spline_bases = prep.n_spline_bases_
-        n_predictors = prep.n_predictors_
-        predictor_names = prep.predictor_names_
-
-        column_names = [
-            f"{name}_s{j}" for name in predictor_names
-            for j in range(1, n_spline_bases + 1)
-        ] + [f"dist_s{j}" for j in range(1, n_spline_bases + 1)]
-
-        n_sites_train = prep.location_values_train_.shape[0]
-
-        self.model_coords = {
-            "obs_pair": np.arange(X_values.shape[0]),
-            "predictor": column_names,
-            "site_train": np.arange(n_sites_train),
-            "feature": predictor_names,
-            "basis_function": np.arange(1, n_spline_bases + 1),
-        }
-
-        with pm.Model(coords=self.model_coords) as model:
-            X_data = pm.Data("X_data", X_values, dims=("obs_pair", "predictor"))
-            log_y_data = pm.Data("log_y_data", log_y_values, dims=("obs_pair",))
-
-            beta_0 = pm.Normal("beta_0", mu=0, sigma=10)
-
-            if self._config.alpha_importance:
-                J = n_spline_bases
-                F = n_predictors
-
-                if F > 0:
-                    beta = pm.Dirichlet(
-                        "beta", a=np.ones(J),
-                        shape=(F, J),
-                        dims=("feature", "basis_function")
-                    )
-
-                    n_cols_env = n_predictors * n_spline_bases
-                    n_cols_dist = n_spline_bases
-                    X_env = X_data[:, :n_cols_env]
-                    X_reshaped = X_env.reshape((-1, F, J))
-                    warped = (X_reshaped * beta[None, :, :]).sum(axis=2)
-
-                    alpha = pm.HalfNormal("alpha", sigma=2, shape=F, dims=("feature",))
-                    mu = beta_0 + pm.math.dot(warped, alpha)
-
-                    if n_cols_dist > 0:
-                        dist_cols = X_data[:, n_cols_env:]
-                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=10, shape=n_cols_dist)
-                        mu = mu + pm.math.dot(dist_cols, beta_dist)
-                else:
-                    mu = beta_0
-            else:
-                beta = pm.LogNormal(
-                    "beta", mu=0, sigma=10,
-                    shape=(n_predictors + 1) * n_spline_bases,
-                )
-                mu = beta_0 + pm.math.dot(X_data, beta)
-
-            variance_fn = (
-                self._config.variance
-                if callable(self._config.variance)
-                else VARIANCE_FUNCTIONS[self._config.variance]
-            )
-            if self._X_sigma is not None:
-                X_sigma_data = pm.Data("X_sigma_data", self._X_sigma)
-            else:
-                X_sigma_data = None
-            sigma2 = variance_fn(mu, X_sigma_data)
-
-            if self._spatial_type != "none":
-                sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
-                location_values = self.preprocessor.location_values_train_
-                length_scale = self.preprocessor.length_scale_
-
-                # Match White et al.: cov(d) = sig2_psi * exp(-d / rho) where
-                # rho = max(pw_distance) / 10 and d is in km.  PyMC's Exponential
-                # kernel uses exp(-d / (2*ls)), so ls = rho / 2.  Coordinates must
-                # be in the same units as pw_distance (km); for euclidean mode the
-                # raw coordinates are in metres, so divide by 1000.
-                gp_coords = location_values / 1000.0
-                cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale / 2)
-                gp = pm.gp.Latent(cov_func=cov)
-                psi = gp.prior("psi", X=gp_coords, dims=("site_train",))
-                self.gp_ = gp  # stored for predict() via gp.conditional()
-
-                # Use pm.Data so indices can be updated via pm.set_data when
-                # predict() is called on the same number of sites as training.
-                row_ind, col_ind = np.triu_indices(n_sites_train, k=1)
-                row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
-                col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
-
-                spatial_fn = (
-                    self._config.spatial_effect if self._spatial_type == "custom"
-                    else SPATIAL_FUNCTIONS[self._config.spatial_effect]
-                )
-                mu += spatial_fn(psi, row_indices, col_indices)
-
-            pm.Censored(
-                "log_y",
-                pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
-                lower=None, upper=0,
-                observed=log_y_data,
-            )
-
-        self.model_ = model
 
     def fit(
         self,
@@ -947,6 +804,142 @@ class spGDMM(BaseEstimator):
         # Store as (chains, draws, pairs) for consistent handling in sample_posterior_predictive.
         self._gp_pred_result = log_y_samples.reshape(n_chains, n_draws, n_pred_pairs)
 
+    def build_model(
+        self,
+        X: "pd.DataFrame | None" = None,
+        y: "pd.Series | np.ndarray | None" = None,
+    ) -> None:
+        """Preprocess data (if provided) and build the PyMC model.
+
+        Parameters
+        ----------
+        X : pd.DataFrame, optional
+            Training site-level data. If provided together with ``y``, preprocessing
+            is run first via ``_generate_and_preprocess_model_data``.
+            If omitted, assumes preprocessing was already done (e.g. on
+            the load path).
+        y : array-like, optional
+            Pairwise dissimilarities (training pairs only). Required when ``X`` is provided.
+        """
+        self.gp_ = None  # reset; set below if spatial effect is active
+        if X is not None:
+            if y is None:
+                raise ValueError("y is required when X is provided.")
+            y_array = np.asarray(y, dtype=float)
+            self._generate_and_preprocess_model_data(X, y_array)
+        elif self.X_GDM_ is None:
+            raise ValueError("No preprocessed data. Pass X and y, or call fit().")
+
+        X_values = self.X_GDM_
+        log_y_values = self.log_y_
+
+        prep = self.preprocessor
+        n_spline_bases = prep.n_spline_bases_
+        n_predictors = prep.n_predictors_
+        predictor_names = prep.predictor_names_
+
+        column_names = [
+            f"{name}_s{j}" for name in predictor_names
+            for j in range(1, n_spline_bases + 1)
+        ] + [f"dist_s{j}" for j in range(1, n_spline_bases + 1)]
+
+        n_sites_train = prep.location_values_train_.shape[0]
+
+        self.model_coords = {
+            "obs_pair": np.arange(X_values.shape[0]),
+            "predictor": column_names,
+            "site_train": np.arange(n_sites_train),
+            "feature": predictor_names,
+            "basis_function": np.arange(1, n_spline_bases + 1),
+        }
+
+        with pm.Model(coords=self.model_coords) as model:
+            X_data = pm.Data("X_data", X_values, dims=("obs_pair", "predictor"))
+            log_y_data = pm.Data("log_y_data", log_y_values, dims=("obs_pair",))
+
+            beta_0 = pm.Normal("beta_0", mu=0, sigma=10)
+
+            if self._config.alpha_importance:
+                J = n_spline_bases
+                F = n_predictors
+
+                if F > 0:
+                    beta = pm.Dirichlet(
+                        "beta", a=np.ones(J),
+                        shape=(F, J),
+                        dims=("feature", "basis_function")
+                    )
+
+                    n_cols_env = n_predictors * n_spline_bases
+                    n_cols_dist = n_spline_bases
+                    X_env = X_data[:, :n_cols_env]
+                    X_reshaped = X_env.reshape((-1, F, J))
+                    warped = (X_reshaped * beta[None, :, :]).sum(axis=2)
+
+                    alpha = pm.HalfNormal("alpha", sigma=2, shape=F, dims=("feature",))
+                    mu = beta_0 + pm.math.dot(warped, alpha)
+
+                    if n_cols_dist > 0:
+                        dist_cols = X_data[:, n_cols_env:]
+                        beta_dist = pm.LogNormal("beta_dist", mu=0, sigma=10, shape=n_cols_dist)
+                        mu = mu + pm.math.dot(dist_cols, beta_dist)
+                else:
+                    mu = beta_0
+            else:
+                beta = pm.LogNormal(
+                    "beta", mu=0, sigma=10,
+                    shape=(n_predictors + 1) * n_spline_bases,
+                )
+                mu = beta_0 + pm.math.dot(X_data, beta)
+
+            variance_fn = (
+                self._config.variance
+                if callable(self._config.variance)
+                else VARIANCE_FUNCTIONS[self._config.variance]
+            )
+            if self._X_sigma is not None:
+                X_sigma_data = pm.Data("X_sigma_data", self._X_sigma)
+            else:
+                X_sigma_data = None
+            sigma2 = variance_fn(mu, X_sigma_data)
+
+            if self._spatial_type != "none":
+                sig2_psi = pm.InverseGamma("sig2_psi", alpha=1, beta=1)
+                location_values = self.preprocessor.location_values_train_
+                length_scale = self.preprocessor.length_scale_
+
+                # Match White et al.: cov(d) = sig2_psi * exp(-d / rho) where
+                # rho = max(pw_distance) / 10 and d is in km.  PyMC's Exponential
+                # kernel uses exp(-d / (2*ls)), so ls = rho / 2.  Coordinates must
+                # be in the same units as pw_distance (km); for euclidean mode the
+                # raw coordinates are in metres, so divide by 1000.
+                gp_coords = location_values / 1000.0
+                cov = sig2_psi * pm.gp.cov.Exponential(2, ls=length_scale / 2)
+                gp = pm.gp.Latent(cov_func=cov)
+                psi = gp.prior("psi", X=gp_coords, dims=("site_train",))
+                self.gp_ = gp  # stored for predict() via gp.conditional()
+
+                # Use pm.Data so indices can be updated via pm.set_data when
+                # predict() is called on the same number of sites as training.
+                row_ind, col_ind = np.triu_indices(n_sites_train, k=1)
+                row_indices = pm.Data("row_indices", row_ind.astype(np.int32))
+                col_indices = pm.Data("col_indices", col_ind.astype(np.int32))
+
+                spatial_fn = (
+                    self._config.spatial_effect if self._spatial_type == "custom"
+                    else SPATIAL_FUNCTIONS[self._config.spatial_effect]
+                )
+                mu += spatial_fn(psi, row_indices, col_indices)
+
+            pm.Censored(
+                "log_y",
+                pm.Normal.dist(mu=mu, sigma=pm.math.sqrt(sigma2)),
+                lower=None, upper=0,
+                observed=log_y_data,
+            )
+
+        self.model_ = model
+
     def save(self, fname: str) -> None:
         """Save inference data to a file.
 
@@ -1112,6 +1105,13 @@ class spGDMM(BaseEstimator):
             "progressbar": True,
             "random_seed": None,
         }
+
+    def __sklearn_is_fitted__(self) -> bool:
+        """Return True only after a successful fit (idata with posterior exists)."""
+        return self.idata_ is not None and "posterior" in self.idata_
+
+    def _more_tags(self):
+        return {"no_validation": True, "non_deterministic": True}
 
 
 __all__ = ["spGDMM"]
