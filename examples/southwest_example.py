@@ -312,7 +312,7 @@ if args.mode in ("bayes", "both"):
             log_y_post = cv_model.predict_posterior(
                 X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
             )
-            y_samples = np.minimum(1.0, np.exp(log_y_post[cv_model.output_var].values))
+            y_samples = np.minimum(1.0, np.exp(log_y_post.values))
             y_pred_mean = y_samples.mean(axis=-1)
             fold_metrics.append({
                 "rmse": rmse(y[test_pair_idx], y_pred_mean),
