@@ -95,21 +95,11 @@ trained_models/
 # Claude Code
 .claude/
 CLAUDE.md
-# Paper build artifacts
-paper/*.blg
-paper/*.log
-paper/*.pdf
-paper/*.synctex.gz
 
-# Experiment results
-experiments/**/results/
-experiments/**/logs/
-
-# Large reference PDFs
-papers/*.pdf
-
-# Large BC matrix (redundant - can be recomputed)
-experiments/white2024_cv/data/southwest_bc_matrix.csv
-
-# Local-only external reference code (e.g., White et al. spGDMM-code)
+# Local-only working directories (research, manuscripts, references, datasets).
+# These are not part of the gdmbayes package distribution.
+benchmarks/
+experiments/
 external/
+paper/
+papers/
