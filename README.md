@@ -280,6 +280,9 @@ distances = calc.compute(np.array(locations))
 ### Plotting Functions
 
 - `plot_isplines(model)`: I-spline effect curves per predictor (matches R `gdm::plot.gdm`)
+- `plot_predictor_importance(model)`: Posterior importance bar chart (Bayesian analogue of R `gdm::gdm.varImp`)
+- `plot_obs_vs_pred(model, X, y)`: Observed vs. predicted dissimilarity scatter
+- `plot_link_curve(model, X, y)`: Fitted link curve ``y = exp(η)`` with observed points overlaid
 - `plot_ppc(idata, y_obs)`: Posterior predictive check
 - `crps_boxplot(y_test, y_pred, y_train)`: CRPS skill vs climatological null
 - `summarise_sampling(idata)`: ESS, R-hat and divergence diagnostics

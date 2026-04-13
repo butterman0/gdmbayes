@@ -38,7 +38,14 @@ from .models.variance import (
 )
 
 # Plotting
-from .plotting import crps_boxplot, plot_isplines, plot_ppc
+from .plotting import (
+    crps_boxplot,
+    plot_isplines,
+    plot_link_curve,
+    plot_obs_vs_pred,
+    plot_ppc,
+    plot_predictor_importance,
+)
 
 # Preprocessing
 from .preprocessor import GDMPreprocessor
@@ -71,6 +78,9 @@ __all__ = [
     "summarise_sampling",
     # Plotting
     "plot_isplines",
+    "plot_predictor_importance",
+    "plot_obs_vs_pred",
+    "plot_link_curve",
     "plot_ppc",
     "crps_boxplot",
     # Maps

@@ -7,6 +7,18 @@ All notable changes to gdmbayes are documented here.
 ### Added
 - `TestGDMModel` test class covering `GDMResult` fields, coefficient extraction,
   `predict()` range, and round-trip serialization via `to_dict` / `from_dict`.
+- Three new plots that bring the package to parity-plus-Bayes with R
+  `gdm::plot.gdm` and `gdm::gdm.varImp`:
+  - `plot_obs_vs_pred(model, X, y)` — observed vs. posterior-mean
+    predicted dissimilarity with 1:1 line and Pearson r. Analogue of R
+    `gdm::plot.gdm` panel 1.
+  - `plot_link_curve(model, X, y)` — fitted link curve ``y = exp(η)``
+    with observed ``(η̂, y)`` overlaid and the censoring bound marked.
+    Analogue of R `gdm::plot.gdm` panel 2 adapted to spGDMM's
+    log-normal-with-right-censoring parameterisation.
+  - `plot_predictor_importance(model)` — horizontal bar chart of
+    ``sum_j β[d, k, j]`` per predictor with HDI error bars. Bayesian
+    analogue of R `gdm::gdm.varImp`.
 
 ### Changed
 - **Plotting module restructure.** `src/gdmbayes/plotting/plots.py` split into
