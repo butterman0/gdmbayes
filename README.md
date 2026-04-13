@@ -85,25 +85,14 @@ print(f"Coefficients: {result.coefficients}")
 pip install gdmbayes
 ```
 
-### Development Installation with Mamba
+### Development Installation
 
 ```bash
 cd spgdmm
-
-# Create and activate the mamba environment
-mamba env create -f environment.yml
-mamba activate spgdmm
-
-# Install in editable mode
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-The environment includes:
-- Python 3.10
-- PyMC, ArviZ, nutpie (Bayesian modelling)
-- NumPy, Pandas, SciPy, Xarray (scientific computing)
-- scikit-learn (machine learning utilities)
-- dms-variants (I-splines)
+Requires Python ≥ 3.10. All runtime and dev dependencies are declared in `pyproject.toml`.
 
 ## Configuration
 

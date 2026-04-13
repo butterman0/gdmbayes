@@ -1,1 +1,0 @@
-"""Examples demonstrating spGDMM usage."""

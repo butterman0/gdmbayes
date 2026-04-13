@@ -9,11 +9,7 @@ Thank you for your interest in contributing to gdmbayes.
 git clone https://github.com/<org>/gdmbayes.git
 cd gdmbayes
 
-# Create a conda environment (recommended)
-conda env create -f environment.yml
-conda activate gdmbayes
-
-# Install in editable mode with dev dependencies
+# Install in editable mode with dev dependencies (Python ≥ 3.10)
 pip install -e ".[dev]"
 ```
 

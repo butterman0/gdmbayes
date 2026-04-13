@@ -43,6 +43,7 @@ dependencies = [
     "matplotlib>=3.7",
     "seaborn>=0.12",
     "dms-variants>=0.8",
+    "geopy>=2.3",
     "ISLP>=0.3",
     "json-tricks>=3.16",
     "properscoring>=0.1",
