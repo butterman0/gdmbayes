@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 import arviz as az
 from scipy.spatial.distance import pdist
-from properscoring import crps_ensemble
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -176,8 +175,7 @@ print(f"\nFull-data fit time: {t_full:.0f}s ({t_full/60:.1f}min)")
 print_diagnostics(full_model, "FULL-DATA")
 
 # Quick prediction check
-samples_full = full_model.predict_posterior(X, combined=True)
-y_pred_full = samples_full.mean(dim="sample").values
+y_pred_full = full_model.predict(X)
 print(f"Full-data predictions: min={y_pred_full.min():.4f}, max={y_pred_full.max():.4f}, "
       f"mean={y_pred_full.mean():.4f}")
 print(f"RMSE (train): {rmse(y, y_pred_full):.4f}")
@@ -217,20 +215,14 @@ print(f"\nCV fold fit time: {t_cv:.0f}s ({t_cv/60:.1f}min)")
 
 print_diagnostics(cv_model, "CV-FOLD")
 
-samples_cv = cv_model.predict_posterior(X_test, combined=True)
-y_pred_cv = samples_cv.mean(dim="sample").values
+y_pred_cv = cv_model.predict(X_test)
 
 print(f"CV predictions: min={y_pred_cv.min():.4f}, max={y_pred_cv.max():.4f}, "
       f"mean={y_pred_cv.mean():.4f}")
 print(f"RMSE (fold 1): {rmse(y[test_pair_idx], y_pred_cv):.4f}")
 print(f"MAE  (fold 1): {mae(y[test_pair_idx], y_pred_cv):.4f}")
 
-# CRPS
-vals = samples_cv.values
-sample_axis = list(samples_cv.dims).index("sample")
-if sample_axis == 0:
-    vals = vals.T
-crps = crps_ensemble(y[test_pair_idx], vals).mean()
+crps = cv_model.crps(X_test, y[test_pair_idx])
 print(f"CRPS (fold 1): {crps:.4f}")
 
 if y_pred_cv.mean() > 0.95:

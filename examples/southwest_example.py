@@ -43,7 +43,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-from properscoring import crps_ensemble
 from scipy.stats import pearsonr
 
 
@@ -119,20 +118,6 @@ def mae(y_true, y_pred):
 def crps_point(y_true, y_pred):
     """CRPS for a point forecast equals MAE."""
     return mae(y_true, y_pred)
-
-def crps_samples(y_true, samples_da):
-    """CRPS from a DataArray of posterior predictive samples (dissimilarity scale).
-
-    Parameters
-    ----------
-    y_true : array-like of shape (n,)
-    samples_da : xr.DataArray with a "sample" dimension
-    """
-    vals = samples_da.values
-    sample_axis = list(samples_da.dims).index("sample")
-    if sample_axis == 0:
-        vals = vals.T  # → (n_obs, n_samples)
-    return crps_ensemble(np.asarray(y_true), vals).mean()
 
 # ---------------------------------------------------------------------------
 # 1. Frequentist GDM
@@ -309,15 +294,13 @@ if args.mode in ("bayes", "both"):
             rhat_vars = {v: float(rhat[v].max()) for v in rhat.data_vars}
             print(f"  R-hat max: {rhat_max:.4f}  per-var: "
                   + "  ".join(f"{k}={v:.3f}" for k, v in rhat_vars.items()))
-            y_post = cv_model.predict_posterior(
-                X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
-            )
-            y_samples = y_post.values
-            y_pred_mean = y_samples.mean(axis=-1)
+            X_test = X.iloc[test_sites].reset_index(drop=True)
+            y_test = y[test_pair_idx]
+            y_pred_mean = cv_model.predict(X_test)
             fold_metrics.append({
-                "rmse": rmse(y[test_pair_idx], y_pred_mean),
-                "mae":  mae( y[test_pair_idx], y_pred_mean),
-                "crps": crps_ensemble(y[test_pair_idx], y_samples).mean(),
+                "rmse": rmse(y_test, y_pred_mean),
+                "mae":  mae(y_test, y_pred_mean),
+                "crps": cv_model.crps(X_test, y_test),
             })
 
         r_cv = np.mean([m["rmse"] for m in fold_metrics])
