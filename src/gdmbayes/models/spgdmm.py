@@ -501,7 +501,11 @@ class spGDMM(BaseEstimator):
         **kwargs,
     ) -> np.ndarray:
         """
-        Predict on new data, returning the posterior mean of the output variable.
+        Predict on new data, returning the posterior-mean dissimilarity for each pair.
+
+        Returns the Monte Carlo estimate of ``E[y | X_pred]`` on the original
+        dissimilarity scale (i.e. ``mean(exp(log_y_samples))``), which is the
+        lognormal mean rather than ``exp(mean(log_y_samples))``.
 
         Parameters
         ----------
@@ -515,6 +519,7 @@ class spGDMM(BaseEstimator):
         Returns
         -------
         np.ndarray
+            Posterior-mean dissimilarities in ``(0, 1]``, one per site pair.
         """
         return self.predict_posterior(
             X_pred, extend_idata=extend_idata, combined=False,
@@ -531,7 +536,15 @@ class spGDMM(BaseEstimator):
         **kwargs,
     ) -> xr.DataArray:
         """
-        Generate posterior predictive samples on new data.
+        Generate posterior predictive samples on new data, in the original
+        dissimilarity scale.
+
+        The PyMC likelihood targets ``log_y`` with a ``Censored(Normal, upper=0)``,
+        so raw model draws are in ``(-inf, 0]``. This method exponentiates the
+        draws and clips to ``1.0`` for numerical safety, yielding samples of the
+        dissimilarity ``y`` on the original ``(0, 1]`` scale. Callers that need
+        log-scale samples can take ``np.log`` of the return value, or read the
+        raw ``log_y`` group from ``self.idata_`` directly.
 
         Parameters
         ----------
@@ -547,6 +560,7 @@ class spGDMM(BaseEstimator):
         Returns
         -------
         xr.DataArray
+            Posterior predictive samples of ``y`` in ``(0, 1]``.
         """
         posterior_predictive_samples = self.sample_posterior_predictive(
             X_pred, extend_idata, combined,
@@ -556,7 +570,8 @@ class spGDMM(BaseEstimator):
             raise KeyError(
                 f"Output variable {self.output_var} not found in posterior predictive samples."
             )
-        return posterior_predictive_samples[self.output_var]
+        log_y_samples = posterior_predictive_samples[self.output_var]
+        return np.minimum(1.0, np.exp(log_y_samples))
 
     def predict_proba(
         self,

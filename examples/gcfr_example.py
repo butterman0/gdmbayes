@@ -128,8 +128,8 @@ def crps_point(y_true, y_pred):
     return mae(y_true, y_pred)
 
 def crps_samples(y_true, samples_da):
-    """CRPS from a DataArray of posterior predictive samples (log scale → exp back)."""
-    vals = np.exp(samples_da.values)
+    """CRPS from a DataArray of posterior predictive samples (dissimilarity scale)."""
+    vals = samples_da.values
     sample_axis = list(samples_da.dims).index("sample")
     if sample_axis == 0:
         vals = vals.T  # → (n_obs, n_samples)
@@ -297,10 +297,10 @@ if args.mode in ("bayes", "both"):
             rhat_vars = {v: float(rhat[v].max()) for v in rhat.data_vars}
             print(f"  R-hat max: {rhat_max:.4f}  per-var: "
                   + "  ".join(f"{k}={v:.3f}" for k, v in rhat_vars.items()))
-            log_y_post = cv_model.predict_posterior(
+            y_post = cv_model.predict_posterior(
                 X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
             )
-            y_samples = np.minimum(1.0, np.exp(log_y_post.values))
+            y_samples = y_post.values
             y_pred_mean = y_samples.mean(axis=-1)
             fold_metrics.append({
                 "rmse": rmse(y[test_pair_idx], y_pred_mean),

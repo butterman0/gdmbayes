@@ -550,7 +550,7 @@ class TestGPConditionalPredict:
         assert y_pred.shape == (expected_pairs,)
 
     def test_predict_new_sites_range(self, train_test_data):
-        """Predictions at new sites: predict() returns log-scale; exp gives [0, 1]."""
+        """Predictions at new sites: predict() returns dissimilarities in (0, 1]."""
         X_train, y_train, X_test, _ = train_test_data
 
         model = spGDMM(
@@ -562,9 +562,7 @@ class TestGPConditionalPredict:
             ),
         )
         model.fit(X_train, y_train)
-        log_y_pred = model.predict(X_test)
-        # predict() returns log-scale (log_y); exp maps to dissimilarity ∈ (0, 1]
-        y_pred = np.minimum(1.0, np.exp(log_y_pred))
+        y_pred = model.predict(X_test)
         assert np.all(y_pred >= 0)
         assert np.all(y_pred <= 1)
 
@@ -583,10 +581,8 @@ class TestGPConditionalPredict:
             ),
         )
         model.fit(X_train, y_train)
-        log_y_pred = model.predict(X_test)
-        assert log_y_pred.shape == (expected_pairs,)
-        # predict() returns log-scale; exp maps to dissimilarity ∈ (0, 1]
-        y_pred = np.minimum(1.0, np.exp(log_y_pred))
+        y_pred = model.predict(X_test)
+        assert y_pred.shape == (expected_pairs,)
         assert np.all(y_pred >= 0)
         assert np.all(y_pred <= 1)
 

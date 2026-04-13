@@ -131,12 +131,11 @@ for model_num, cfg in CONFIGS:
         print(f"    {k} = {v:.3f}")
 
     # Predict with chain dimension preserved
-    log_y_post = spg.predict_posterior(X, combined=False, extend_idata=False)
-    print(f"  log_y dims = {log_y_post.dims}  shape = {log_y_post.shape}")
-    non_cd = [d for d in log_y_post.dims if d not in ("chain", "draw")]
+    y_post = spg.predict_posterior(X, combined=False, extend_idata=False)
+    print(f"  y dims = {y_post.dims}  shape = {y_post.shape}")
+    non_cd = [d for d in y_post.dims if d not in ("chain", "draw")]
     pair_dim = non_cd[0]
-    log_y_arr = log_y_post.transpose("chain", "draw", pair_dim).values
-    y_samples = np.minimum(1.0, np.exp(log_y_arr))  # (chain, draw, n_pairs)
+    y_samples = y_post.transpose("chain", "draw", pair_dim).values  # (chain, draw, n_pairs)
     assert y_samples.shape[-1] == test_mask.size
 
     Z_true = Z[test_mask]
@@ -158,13 +157,13 @@ for model_num, cfg in CONFIGS:
     print(f"  chain RMSE range: {rmse_min:.4f} - {rmse_max:.4f}  "
           f"(spread {rmse_max - rmse_min:.4f})")
 
-    # R-hat on predicted held-out log_y
-    log_y_hold = log_y_arr[:, :, test_mask]
-    da = xr.DataArray(log_y_hold, dims=["chain", "draw", "pair"])
-    rhat_pred = az.rhat(xr.Dataset({"log_y": da}))
-    rhat_pred_max = float(rhat_pred["log_y"].max())
-    rhat_pred_mean = float(rhat_pred["log_y"].mean())
-    print(f"  predicted log_y R-hat: max = {rhat_pred_max:.4f}  "
+    # R-hat on predicted held-out y (dissimilarity scale)
+    y_hold = y_samples[:, :, test_mask]
+    da = xr.DataArray(y_hold, dims=["chain", "draw", "pair"])
+    rhat_pred = az.rhat(xr.Dataset({"y": da}))
+    rhat_pred_max = float(rhat_pred["y"].max())
+    rhat_pred_mean = float(rhat_pred["y"].mean())
+    print(f"  predicted y R-hat: max = {rhat_pred_max:.4f}  "
           f"mean = {rhat_pred_mean:.4f}")
 
     # Pooled metrics (all chains)

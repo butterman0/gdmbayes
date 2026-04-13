@@ -74,8 +74,8 @@ def crps_point(y_true, y_pred):
     return mae(y_true, y_pred)
 
 def crps_samples(y_true, samples_da):
-    """CRPS from a DataArray of posterior predictive samples (log scale → exp back)."""
-    vals = np.exp(samples_da.values)
+    """CRPS from a DataArray of posterior predictive samples (already on dissimilarity scale)."""
+    vals = samples_da.values
     # az.extract returns (..., sample) or (sample, ...) — put sample last for crps_ensemble
     sample_axis = list(samples_da.dims).index("sample")
     if sample_axis == 0:
@@ -161,9 +161,9 @@ if args.mode in ("bayes", "both"):
         model.save(out_nc)
         print(f"Model saved to {out_nc}")
 
-    # Full posterior predictive distribution (log scale → exp back to dissimilarity)
+    # Full posterior predictive distribution on the dissimilarity scale.
     samples_da = model.predict_posterior(X, combined=True)
-    y_pred_bayes = np.exp(samples_da).mean(dim="sample").values
+    y_pred_bayes = samples_da.mean(dim="sample").values
 
     r_b = rmse(y, y_pred_bayes)
     m_b = mae(y, y_pred_bayes)

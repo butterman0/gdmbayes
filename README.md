@@ -283,7 +283,7 @@ distances = calc.compute(np.array(locations))
 - `GDM.fit(X, y)`: Fit frequentist model; returns `self`
 - `GDM.predict(X)`: Pairwise dissimilarity predictions in `[0, 1)`
 - `spGDMM.fit(X, y)`: Fit Bayesian model; returns `self`
-- `spGDMM.predict(X)`: Posterior mean predictions (log scale)
+- `spGDMM.predict(X)`: Posterior-mean dissimilarity predictions in `(0, 1]`
 - `spGDMM.save(fname)` / `spGDMM.load(fname)`: Serialise/restore model
 - `GDMModel.fit(X, y)`: Fit Bayesian model; returns `GDMResult`
 - `GDMModel.predict(X)`: Predicted pairwise dissimilarities in `[0, 1)`

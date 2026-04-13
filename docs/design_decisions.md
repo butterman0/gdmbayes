@@ -19,7 +19,7 @@ For spatial models with a GP random effect, predicting at test-site locations re
 1. `gp.conditional("psi_pred", pred_coords)` is registered in the fitted model context (PyMC knows how to sample from `p(psi_pred | psi_train, posterior_hyperparams)`).
 2. `pm.sample_posterior_predictive(idata, var_names=["psi_pred"])` draws `psi_pred` for each posterior sample.
 3. The full linear predictor and variance are assembled in NumPy using `psi_pred` samples and `idata.posterior` draws of `beta_0`, `beta`, `sigma2` / `beta_sigma`.
-4. `log_y_pred ~ Normal(mu, sigma)` is sampled in NumPy; result is returned as a `(n_chains, n_draws, n_pred_pairs)` array.
+4. `log_y_pred ~ Normal(mu, sigma)` is sampled in NumPy; the result is exponentiated (and clipped at 1) inside `predict_posterior()` and returned on the dissimilarity scale as a `(n_chains, n_draws, n_pred_pairs)` array.
 
 This avoids PyTensor graph shape conflicts that arise from mixing a batched GP conditional variable with existing model RVs inside `pm.sample_posterior_predictive`.
 
@@ -44,10 +44,10 @@ for train_sites, test_sites in kf.split(np.arange(n_sites)):
 
     model = make_spgdmm()
     model.fit(X.iloc[train_sites].reset_index(drop=True), y[train_pair_idx])
-    log_y_post = model.predict_posterior(
+    y_post = model.predict_posterior(
         X.iloc[test_sites].reset_index(drop=True), combined=True, extend_idata=False
     )
-    y_samples = np.minimum(1.0, np.exp(log_y_post[model.output_var].values))
+    y_samples = y_post.values   # dissimilarity scale, already in (0, 1]
     y_pred_mean = y_samples.mean(axis=-1)
     # compute rmse, mae, crps against y[test_pair_idx]
 ```

@@ -128,11 +128,10 @@ for model_num, cfg in CONFIGS:
     print(f"  fit time={fit_s:.1f}s   r-hat max={rhat_max:.4f}")
 
     # Predict on full 39-site design; extract held-out pairs.
-    log_y_post = spg.predict_posterior(X, combined=True, extend_idata=False)
-    # log_y_post dims include "sample" and a pair dim; find the pair dim.
-    pair_dim = next(d for d in log_y_post.dims if d != "sample")
-    arr = log_y_post.transpose(pair_dim, "sample").values   # (n_pairs, n_samples)
-    y_samples_full = np.minimum(1.0, np.exp(arr))
+    y_post = spg.predict_posterior(X, combined=True, extend_idata=False)
+    # y_post dims include "sample" and a pair dim; find the pair dim.
+    pair_dim = next(d for d in y_post.dims if d != "sample")
+    y_samples_full = y_post.transpose(pair_dim, "sample").values   # (n_pairs, n_samples)
     assert y_samples_full.shape[0] == test_mask.size, (y_samples_full.shape, test_mask.size)
     y_samples_hold = y_samples_full[test_mask]
     pred_mean = y_samples_hold.mean(axis=-1)
