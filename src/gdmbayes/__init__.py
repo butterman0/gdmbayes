@@ -9,7 +9,12 @@ from . import version  # noqa: F401
 
 __version__ = version.__version__
 
-# Core Bayesian model
+# Diagnostics
+from .diagnostics import summarise_sampling
+
+# Biological-space RGB maps
+from .maps import rgb_biological_space, rgb_from_biological_space
+
 # Model configuration
 from .models.config import ModelConfig, SamplerConfig
 
@@ -33,14 +38,7 @@ from .models.variance import (
 )
 
 # Plotting
-from .plotting.plots import (
-    plot_crps_comparison,
-    plot_isplines,
-    plot_ppc,
-    rgb_biological_space,
-    rgb_from_biological_space,
-    summarise_sampling,
-)
+from .plotting import crps_boxplot, plot_isplines, plot_ppc
 
 # Preprocessing
 from .preprocessor import GDMPreprocessor
@@ -49,14 +47,10 @@ from .preprocessor import GDMPreprocessor
 from .utils import site_pairs
 
 __all__ = [
-    # Version
     "__version__",
-    # Core Bayesian model
+    # Core models
     "spGDMM",
-    # Frequentist GDM
     "GDM",
-    # Plotting (re-exported)
-    "rgb_biological_space",
     # Model configuration
     "ModelConfig",
     "SamplerConfig",
@@ -73,10 +67,13 @@ __all__ = [
     "GDMPreprocessor",
     # Utilities
     "site_pairs",
+    # Diagnostics
+    "summarise_sampling",
     # Plotting
     "plot_isplines",
-    "plot_crps_comparison",
-    "summarise_sampling",
     "plot_ppc",
+    "crps_boxplot",
+    # Maps
     "rgb_from_biological_space",
+    "rgb_biological_space",
 ]

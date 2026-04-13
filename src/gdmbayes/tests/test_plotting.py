@@ -2,7 +2,8 @@
 
 import numpy as np
 
-from gdmbayes.plotting import plot_crps_comparison, plot_ppc, summarise_sampling
+from gdmbayes.diagnostics import summarise_sampling
+from gdmbayes.plotting import crps_boxplot, plot_ppc
 
 
 class TestSummariseSampling:
@@ -62,36 +63,22 @@ class TestSummariseSampling:
         assert summary is not None
 
 
-class TestCrpsComparison:
-    """Test CRPS comparison plotting."""
+class TestCrpsBoxplot:
+    """Test CRPS boxplot."""
 
-    def test_plot_crps_comparison_basic(self):
-        """Test basic CRPS comparison plot."""
-        np.random.seed(42)
-
-        # Create fake test predictions
-        y_test = np.random.uniform(0.1, 0.9, 50)
-        y_train = np.random.uniform(0.1, 0.9, 100)
-        y_pred = np.random.uniform(0.1, 0.9, (50, 100))  # 50 test points, 100 samples
-
-        # Create plot
-        fig, axes = plot_crps_comparison(y_test, y_pred, y_train)
-
-        # Check output
-        assert fig is not None
-        assert axes is not None
-        assert len(axes) == 2  # Two subplots
-
-    def test_plot_crps_comparison_log(self):
-        """Test CRPS comparison with log scale."""
+    def test_crps_boxplot_basic(self):
+        """Test basic CRPS boxplot."""
         np.random.seed(42)
 
         y_test = np.random.uniform(0.1, 0.9, 50)
         y_train = np.random.uniform(0.1, 0.9, 100)
         y_pred = np.random.uniform(0.1, 0.9, (50, 100))
 
-        fig, axes = plot_crps_comparison(y_test, y_pred, y_train, use_log=True)
+        fig, axes = crps_boxplot(y_test, y_pred, y_train)
+
         assert fig is not None
+        assert axes is not None
+        assert len(axes) == 2
 
 
 class TestPosteriorPredictiveCheck:

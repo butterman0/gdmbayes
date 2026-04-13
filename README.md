@@ -216,19 +216,19 @@ print(list(SPATIAL_FUNCTIONS))    # ['abs_diff', 'squared_diff']
 ## Plotting and Diagnostics
 
 ```python
-from gdmbayes import plot_isplines, plot_crps_comparison, summarise_sampling, plot_ppc
+from gdmbayes import plot_isplines, crps_boxplot, summarise_sampling, plot_ppc
 
 # Check sampling diagnostics
 diagnostics = summarise_sampling(idata)
 
-# Plot I-spline effects
-plot_isplines(model)
+# Plot I-spline effects (one figure per predictor)
+figs = plot_isplines(model)
 
 # Posterior predictive check
 plot_ppc(idata, y_test)
 
-# CRPS comparison
-plot_crps_comparison(y_test, predictions, y_train)
+# CRPS skill score vs climatological null
+crps_boxplot(y_test, predictions, y_train)
 ```
 
 ## Distance Calculation
@@ -279,10 +279,10 @@ distances = calc.compute(np.array(locations))
 
 ### Plotting Functions
 
-- `plot_isplines(model)`: Plot I-spline effect curves
-- `plot_crps_comparison(y_test, y_pred, y_train)`: Compare model vs null baseline
-- `summarise_sampling(idata)`: ESS and R-hat diagnostics
+- `plot_isplines(model)`: I-spline effect curves per predictor (matches R `gdm::plot.gdm`)
 - `plot_ppc(idata, y_obs)`: Posterior predictive check
+- `crps_boxplot(y_test, y_pred, y_train)`: CRPS skill vs climatological null
+- `summarise_sampling(idata)`: ESS, R-hat and divergence diagnostics
 
 ## Development
 

@@ -8,12 +8,29 @@ All notable changes to gdmbayes are documented here.
 - `TestGDMModel` test class covering `GDMResult` fields, coefficient extraction,
   `predict()` range, and round-trip serialization via `to_dict` / `from_dict`.
 
+### Changed
+- **Plotting module restructure.** `src/gdmbayes/plotting/plots.py` split into
+  `isplines.py`, `ppc.py`, and `scoring.py` — one concept per file.
+  `summarise_sampling` moved to new top-level `diagnostics.py` (it is not a
+  plot). `rgb_from_biological_space` / `rgb_biological_space` moved to new
+  top-level `maps.py`.
+- `plot_isplines` now returns `list[(fig, ax)]` instead of calling
+  `plt.show()` per figure, so plots compose in notebooks, CI, and headless
+  runs. Default rendering matches R `gdm::plot.gdm` (summed curve + HDI
+  band); pass `decompose=True` to overlay per-basis contributions.
+- Renamed `plot_crps_comparison` → `crps_boxplot` and removed the broken
+  `use_log` parameter (it logged `y_test`/`y_train` without logging
+  `y_pred`, producing mixed-scale CRPS). Callers who want log-scale scores
+  should pass logged inputs directly.
+
 ### Fixed
+- `rgb_biological_space`: removed a redundant second `pca.transform` pass
+  over the same rows — the PCA is now fit once on the valid samples and
+  its outputs placed back into the grid.
 - Beta coefficient indexing in `GDMModel.fit()` for `alpha_importance=True`:
   when `beta` is 2-D (Dirichlet prior shape `(F, J)`), coefficients are now
   extracted as `beta_median[i, :]` per predictor rather than a 1-D slice.
 
-### Changed
 - README rewritten to reflect the `gdmbayes` package name and current API.
   All references to the old `spgdmm` import path, `format_site_pair`,
   `BioFormat`, and `ModelVariant` have been removed.
