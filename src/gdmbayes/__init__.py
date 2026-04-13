@@ -5,15 +5,16 @@ A Python package for modelling ecological dissimilarities using spatial
 and environmental predictors with I-spline basis functions.
 """
 
-from . import version  # noqa: F401
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
-__version__ = version.__version__
-
-# Diagnostics
-from .diagnostics import summarise_sampling
+try:
+    __version__ = _pkg_version("gdmbayes")
+except PackageNotFoundError:  # pragma: no cover — editable install without metadata
+    __version__ = "0.0.0+unknown"
 
 # Biological-space RGB maps
-from .maps import rgb_biological_space, rgb_from_biological_space
+from .maps import rgb_biological_space
 
 # Model configuration
 from .models.config import ModelConfig, SamplerConfig
@@ -50,8 +51,8 @@ from .plotting import (
 # Preprocessing
 from .preprocessor import GDMPreprocessor
 
-# Utilities
-from .utils import site_pairs
+# Cross-validation helpers
+from .cv import site_pairs
 
 __all__ = [
     "__version__",
@@ -72,10 +73,8 @@ __all__ = [
     "SPATIAL_FUNCTIONS",
     # Preprocessor
     "GDMPreprocessor",
-    # Utilities
+    # Cross-validation helpers
     "site_pairs",
-    # Diagnostics
-    "summarise_sampling",
     # Plotting
     "plot_isplines",
     "plot_predictor_importance",
@@ -84,6 +83,5 @@ __all__ = [
     "plot_ppc",
     "crps_boxplot",
     # Maps
-    "rgb_from_biological_space",
     "rgb_biological_space",
 ]

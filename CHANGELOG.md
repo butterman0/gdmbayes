@@ -21,6 +21,27 @@ All notable changes to gdmbayes are documented here.
     analogue of R `gdm::gdm.varImp`.
 
 ### Changed
+- **Package layout cleanup.** Four small simplifications, no behaviour change:
+  - Deleted `version.py`; `__version__` is now derived from
+    `importlib.metadata.version("gdmbayes")` in `__init__.py` so the
+    package version has a single source of truth in `pyproject.toml`.
+    `spGDMM.version` (the model-schema version used in the saved-model
+    id hash) is untouched.
+  - Renamed `utils.py` → `cv.py`. Its sole contents (`site_pairs`) are
+    cross-validation helpers; the new name advertises what the module
+    is for. Public import path `from gdmbayes import site_pairs` is
+    unchanged.
+  - Folded `diagnostics.summarise_sampling` into a method on
+    `spGDMM` — `model.summarise_sampling()`. `self.idata_` is right
+    there, matching `gdm_transform()` / `ispline_extract()`. The
+    top-level `diagnostics.py` module is gone. The free-function
+    import `from gdmbayes import summarise_sampling` is **removed**;
+    callers should use the method instead.
+  - `maps.rgb_from_biological_space` is now private
+    (`_rgb_from_biological_space`) since no external caller constructs
+    its input by hand. `rgb_biological_space` remains the public entry
+    point. Removed a stale docstring reference to a nonexistent
+    `spGDMM._predict_biological_space()`.
 - **Plotting module restructure.** `src/gdmbayes/plotting/plots.py` split into
   `isplines.py`, `ppc.py`, and `scoring.py` — one concept per file.
   `summarise_sampling` moved to new top-level `diagnostics.py` (it is not a

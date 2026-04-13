@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist
 
-from gdmbayes import GDM, spGDMM, ModelConfig, GDMPreprocessor, SamplerConfig, summarise_sampling
+from gdmbayes import GDM, GDMPreprocessor, ModelConfig, SamplerConfig, spGDMM
 
 # -----------------------------------------------------------------------
 # 1. Generate synthetic data
@@ -76,7 +76,7 @@ print(f"Variables: {list(idata.posterior.data_vars.keys())}")
 
 # Sampling diagnostics
 print("\nSampling Diagnostics")
-diag = summarise_sampling(idata)
+diag = model.summarise_sampling()
 print(diag.head(10))
 
 # -----------------------------------------------------------------------

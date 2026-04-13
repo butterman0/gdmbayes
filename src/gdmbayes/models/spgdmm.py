@@ -1145,6 +1145,65 @@ class spGDMM(BaseEstimator):
 
         return result
 
+    def summarise_sampling(
+        self,
+        var_names: list[str] | None = None,
+        rhat_threshold: float = 1.01,
+        ess_threshold: int = 100,
+    ) -> pd.DataFrame:
+        """Return a tidy DataFrame of ESS / R-hat diagnostics for the fitted model.
+
+        Prints a one-line divergence/health summary to stdout and returns a
+        DataFrame with per-parameter ``mean``, ``sd``, ``ess_bulk``,
+        ``ess_tail`` and ``r_hat``. Parameters breaching ``rhat_threshold``
+        or ``ess_threshold`` are counted in the printed summary.
+
+        Parameters
+        ----------
+        var_names : list of str, optional
+            Parameters to include. Defaults to all variables in the posterior.
+        rhat_threshold : float, default 1.01
+            R-hat above this value is flagged as potentially problematic.
+        ess_threshold : int, default 100
+            Bulk ESS below this value is flagged as potentially problematic.
+
+        Returns
+        -------
+        pandas.DataFrame
+        """
+        check_is_fitted(self, "idata_")
+        idata = self.idata_
+
+        summary = az.summary(idata, var_names=var_names)
+        keep = [c for c in ["mean", "sd", "ess_bulk", "ess_tail", "r_hat"] if c in summary.columns]
+        diag = summary[keep].copy()
+
+        n_div = 0
+        if hasattr(idata, "sample_stats") and hasattr(idata.sample_stats, "diverging"):
+            n_div = int(idata.sample_stats.diverging.values.sum())
+
+        n_chains = idata.posterior.sizes.get("chain", 1)
+        n_draws = idata.posterior.sizes.get("draw", 0)
+        total = n_chains * n_draws
+
+        print(
+            f"Chains: {n_chains}  |  Draws/chain: {n_draws}  |  "
+            f"Total draws: {total}  |  Divergences: {n_div}"
+        )
+
+        bad_rhat = diag["r_hat"] > rhat_threshold if "r_hat" in diag else pd.Series(dtype=bool)
+        bad_ess = diag["ess_bulk"] < ess_threshold if "ess_bulk" in diag else pd.Series(dtype=bool)
+        n_bad_rhat = int(bad_rhat.sum())
+        n_bad_ess = int(bad_ess.sum())
+        if n_bad_rhat:
+            print(f"  WARNING: {n_bad_rhat} parameter(s) with R-hat > {rhat_threshold}")
+        if n_bad_ess:
+            print(f"  WARNING: {n_bad_ess} parameter(s) with ESS_bulk < {ess_threshold}")
+        if not n_bad_rhat and not n_bad_ess and n_div == 0:
+            print("  All diagnostics look healthy.")
+
+        return diag
+
     @property
     def id(self) -> str:
         """Generate a unique hash value for the model based on config and version."""

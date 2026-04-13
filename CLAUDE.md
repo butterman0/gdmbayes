@@ -50,7 +50,7 @@ python experiments/white2024_cv/compare_results.py
 
 ```
 spGDMM (models/spgdmm.py)               ← Bayesian estimator (sklearn-style)
-    methods: fit, predict, gdm_transform, ispline_extract
+    methods: fit, predict, gdm_transform, ispline_extract, summarise_sampling
 
 GDM (models/gdm.py)                     ← frequentist sklearn estimator
     uses: GDMPreprocessor internally

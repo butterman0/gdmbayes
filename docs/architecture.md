@@ -6,11 +6,10 @@
 
 - **`GDM`** (`models/gdm.py`): Frequentist sklearn estimator implementing the R GDM algorithm. `fit(X, y)` applies the cloglog link to `y`, runs NNLS on the I-spline feature matrix, and stores coefficients. `predict(X)` returns pairwise dissimilarities via `1 - exp(-X_GDM @ coef_)`.
 - **`GDMPreprocessor`** (`preprocessor.py`): sklearn-style transformer. Init params: `deg`, `knots`, `mesh_choice`, `distance_measure`, `extrapolation`, `custom_dist_mesh`, `custom_predictor_mesh`. Owns all data-transformation logic: I-spline mesh construction, geographic distance computation, and pairwise feature matrix assembly. Fitted state is saved/loaded via `to_xarray()` / `from_xarray()`.
-- **`spGDMM`** (`models/spgdmm.py`): Bayesian estimator. Delegates preprocessing to `self.preprocessor` (a `GDMPreprocessor`). `fit()` calls `preprocessor.fit()`, builds a PyMC model, runs MCMC, and returns `InferenceData`. Includes `gdm_transform()` and `ispline_extract()` methods.
+- **`spGDMM`** (`models/spgdmm.py`): Bayesian estimator. Delegates preprocessing to `self.preprocessor` (a `GDMPreprocessor`). `fit()` calls `preprocessor.fit()`, builds a PyMC model, runs MCMC, and returns `InferenceData`. Includes `gdm_transform()`, `ispline_extract()`, and `summarise_sampling()` methods.
 - **`plotting`** (`plotting/`): One module per plot — `isplines.py` (`plot_isplines`), `ppc.py` (`plot_ppc`), `scoring.py` (`crps_boxplot`).
-- **`diagnostics`** (`diagnostics.py`): `summarise_sampling()` for ESS/R-hat/divergence summaries.
-- **`maps`** (`maps.py`): `rgb_biological_space()` / `rgb_from_biological_space()` for PCA-based RGB community-composition maps.
-- **`utils.site_pairs`** (`utils.py`): Converts a site-index subset to condensed pair indices into a `y` vector. Used in all CV loops to slice train/test pairs from the full pairwise dissimilarity vector.
+- **`maps`** (`maps.py`): `rgb_biological_space()` for PCA-based RGB community-composition maps (works directly from a saved `InferenceData`, no live model object needed).
+- **`cv.site_pairs`** (`cv.py`): Converts a site-index subset to condensed pair indices into a `y` vector. Used in all CV loops to slice train/test pairs from the full pairwise dissimilarity vector.
 
 ## Configuration
 

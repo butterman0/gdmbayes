@@ -1,4 +1,4 @@
-"""Utility functions for gdmbayes."""
+"""Cross-validation helpers for gdmbayes."""
 
 import numpy as np
 

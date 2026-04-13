@@ -10,15 +10,19 @@ import pandas as pd
 import xarray as xr
 
 
-def rgb_from_biological_space(transformed_da: xr.DataArray) -> xr.DataArray:
+def _rgb_from_biological_space(transformed_da: xr.DataArray) -> xr.DataArray:
     """PCA-based RGB map from a weighted biological-space DataArray.
+
+    Internal helper. The expected input is the per-feature spline ×
+    posterior-summary-beta product — i.e. what
+    ``preprocessor.transform(X, biological_space=True) @ beta`` produces
+    inside :func:`rgb_biological_space`.
 
     Parameters
     ----------
     transformed_da : xr.DataArray
-        Output of ``spGDMM._predict_biological_space()``. Dims
-        ``(time, grid_cell, feature)`` where ``grid_cell`` is a MultiIndex
-        coord with levels ``(yc, xc)``.
+        Dims ``(time, grid_cell, feature)`` where ``grid_cell`` is a
+        MultiIndex coord with levels ``(yc, xc)``.
 
     Returns
     -------
@@ -122,7 +126,7 @@ def rgb_biological_space(
         )
         * beta
     ).sum(dim="basis_function", skipna=False)
-    return rgb_from_biological_space(transformed)
+    return _rgb_from_biological_space(transformed)
 
 
-__all__ = ["rgb_from_biological_space", "rgb_biological_space"]
+__all__ = ["rgb_biological_space"]

@@ -216,10 +216,10 @@ print(list(SPATIAL_FUNCTIONS))    # ['abs_diff', 'squared_diff']
 ## Plotting and Diagnostics
 
 ```python
-from gdmbayes import plot_isplines, crps_boxplot, summarise_sampling, plot_ppc
+from gdmbayes import plot_isplines, crps_boxplot, plot_ppc
 
-# Check sampling diagnostics
-diagnostics = summarise_sampling(idata)
+# Check sampling diagnostics (method on the fitted model)
+diagnostics = model.summarise_sampling()
 
 # Plot I-spline effects (one figure per predictor)
 figs = plot_isplines(model)
@@ -285,7 +285,7 @@ distances = calc.compute(np.array(locations))
 - `plot_link_curve(model, X, y)`: Fitted link curve ``y = exp(η)`` with observed points overlaid
 - `plot_ppc(idata, y_obs)`: Posterior predictive check
 - `crps_boxplot(y_test, y_pred, y_train)`: CRPS skill vs climatological null
-- `summarise_sampling(idata)`: ESS, R-hat and divergence diagnostics
+- `spGDMM.summarise_sampling()`: ESS, R-hat and divergence diagnostics (method on the fitted model)
 
 ## Development
 

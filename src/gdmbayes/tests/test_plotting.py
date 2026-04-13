@@ -4,7 +4,7 @@ import numpy as np
 
 import xarray as xr
 
-from gdmbayes.diagnostics import summarise_sampling
+from gdmbayes import spGDMM
 from gdmbayes.plotting import (
     crps_boxplot,
     plot_link_curve,
@@ -17,11 +17,20 @@ from gdmbayes.plotting import (
 class TestSummariseSampling:
     """Test sampling diagnostics summary."""
 
+    def _stub_model(self, idata) -> spGDMM:
+        """Return an spGDMM whose idata_ is the supplied synthetic one.
+
+        Bypasses fit() so unit tests don't need to run MCMC. The method
+        only reads ``self.idata_``, so this is sufficient.
+        """
+        m = spGDMM()
+        m.idata_ = idata
+        return m
+
     def test_summarise_sampling_basic(self):
         """Test basic summary with synthetic data."""
         import arviz as az
 
-        # Create synthetic inference data
         np.random.seed(42)
         n_chains = 2
         n_draws = 100
@@ -33,19 +42,12 @@ class TestSummariseSampling:
         sample_stats = {
             "diverging": np.zeros((n_chains, n_draws), dtype=bool),
         }
+        idata = az.from_dict(posterior=posterior, sample_stats=sample_stats)
 
-        idata = az.from_dict(
-            posterior=posterior,
-            sample_stats=sample_stats,
-        )
+        summary = self._stub_model(idata).summarise_sampling()
 
-        # Run summary
-        summary = summarise_sampling(idata)
-
-        # Check output format
         assert summary is not None
         assert isinstance(summary, object)
-        # Should contain parameter summaries
 
     def test_summarise_sampling_with_divergences(self):
         """Test summary with divergences present."""
@@ -58,16 +60,11 @@ class TestSummariseSampling:
             "beta_0": np.random.normal(0, 1, (n_chains, n_draws)),
         }
         sample_stats = {
-            "diverging": np.random.rand(n_chains, n_draws) > 0.8,  # Some divergences
+            "diverging": np.random.rand(n_chains, n_draws) > 0.8,
         }
+        idata = az.from_dict(posterior=posterior, sample_stats=sample_stats)
 
-        idata = az.from_dict(
-            posterior=posterior,
-            sample_stats=sample_stats,
-        )
-
-        # Run summary - should report divergences
-        summary = summarise_sampling(idata)
+        summary = self._stub_model(idata).summarise_sampling()
         assert summary is not None
 
 
