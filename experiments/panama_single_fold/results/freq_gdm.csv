@@ -1,0 +1,3 @@
+dataset,implementation,model,deg,knots,df,RMSE,MAE,CRPS,n_train_sites,n_test_sites,n_test_pairs
+Panama,gdmbayes_freq,GDM_df3,3,0,3,0.09474937044923332,0.07649011661554894,0.07649011661554894,36,3,111
+Panama,gdmbayes_freq,GDM_df4,3,1,4,0.09225100090050307,0.07480143726964915,0.07480143726964915,36,3,111

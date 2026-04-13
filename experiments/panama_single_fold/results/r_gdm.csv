@@ -1,0 +1,3 @@
+"dataset","implementation","model","deg","knots","df","RMSE","MAE","CRPS","n_train_sites","n_test_sites","n_test_pairs"
+"Panama","R_gdm","gdm_splines3",2,1,3,0.0934428538552964,0.0761965754021137,0.0761965754021137,36,3,111
+"Panama","R_gdm","gdm_splines4",2,2,4,0.0918727607518429,0.0730653996357124,0.0730653996357124,36,3,111
