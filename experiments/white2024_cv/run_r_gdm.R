@@ -22,7 +22,7 @@ for (i in seq_along(args)) {
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 set.seed(42)
 
-data_dir = "/cluster/home/haroldh/spgdmm/examples/data"
+data_dir = "/cluster/home/haroldh/spgdmm/experiments/white2024_cv/data"
 rmse_fn  = function(o, p) sqrt(mean((o - p)^2))
 mae_fn   = function(o, p) mean(abs(o - p))
 

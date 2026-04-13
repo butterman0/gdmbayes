@@ -284,9 +284,9 @@ Stan's NUTS implementation has more sophisticated adaptation:
 | `src/gdmbayes/models/variance.py` | Variance functions (homogeneous, covariate_dependent, polynomial) |
 | `src/gdmbayes/models/spgdmm.py` | Model building, initvals, sampling, full spGDMM class |
 | `src/gdmbayes/models/config.py` | ModelConfig, SamplerConfig dataclasses |
-| `examples/panama_test_diagnostics.py` | Diagnostic test script that produced the output in Section 8 |
+| `experiments/white2024_cv/panama_test_diagnostics.py` | Diagnostic test script that produced the output in Section 8 |
 | `benchmarks/white2024_table1.csv` | Ground-truth benchmarks from White et al. (2024) |
-| `examples/panama_example.py` | Panama dataset example (Bayesian CV) |
+| `experiments/white2024_cv/panama_example.py` | Panama dataset CV runner |
 | `src/gdmbayes/preprocessing/preprocessor.py` | GDMPreprocessor (I-spline computation, pairwise features) |
 
 ---

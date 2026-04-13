@@ -6,7 +6,7 @@
 # Full-data .nc models are reused if already present; only the CV fold is refit.
 
 set -e
-cd /cluster/home/haroldh/spgdmm/examples
+cd /cluster/home/haroldh/spgdmm/experiments/white2024_cv
 
 for SEED in 42 123 456; do
     echo "--- Submitting seed=${SEED} ---"

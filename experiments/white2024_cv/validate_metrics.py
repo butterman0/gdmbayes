@@ -13,7 +13,7 @@ import os
 import sys
 
 BENCHMARKS_CSV = os.path.join(
-    os.path.dirname(__file__), "..", "benchmarks", "white2024_table1.csv"
+    os.path.dirname(__file__), "..", "..", "benchmarks", "white2024_table1.csv"
 )
 
 # Map our config_tag → White et al. (dataset, spatial_effect, variance)

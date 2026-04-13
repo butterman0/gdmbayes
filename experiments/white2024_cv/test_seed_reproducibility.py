@@ -61,7 +61,7 @@ print("=== 2. MCMC reproducibility ===")
 import warnings
 warnings.filterwarnings("ignore")
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from gdmbayes import spGDMM, ModelConfig, SamplerConfig, GDMPreprocessor
 
 def fit_model(seed):

@@ -3,7 +3,7 @@
 # Usage: bash monitor_jobs.sh [interval_seconds]
 
 INTERVAL=${1:-30}
-RESULTS_DIR=/cluster/home/haroldh/spgdmm/examples/results
+RESULTS_DIR=/cluster/home/haroldh/spgdmm/experiments/white2024_cv/results
 LOG_DIR=${RESULTS_DIR}/logs
 
 echo "Waiting for gdm jobs to appear..."

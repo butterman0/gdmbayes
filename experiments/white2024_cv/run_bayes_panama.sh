@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=gdm-holdout-sw
-#SBATCH --output=results/logs/holdout_sw_%A_%a.out
-#SBATCH --error=results/logs/holdout_sw_%A_%a.err
+#SBATCH --job-name=gdm-holdout-panama
+#SBATCH --output=results/logs/holdout_panama_%A_%a.out
+#SBATCH --error=results/logs/holdout_panama_%A_%a.err
 #SBATCH --time=8:00:00
 #SBATCH --mem=32G
 #SBATCH --cpus-per-task=4
@@ -11,20 +11,20 @@
 # held-out pairs become latent Normal RVs so the GP samples psi
 # at test-site locations.
 # Array job: one task per model config (0-8), each runs 10-fold CV.
-# Submit with: sbatch run_bayes_sw.sh
+# Submit with: sbatch run_bayes_panama.sh
 
 set -e
-cd /cluster/home/haroldh/spgdmm/examples
-mkdir -p results/logs results/southwest ~/.cache/arviz
+cd /cluster/home/haroldh/spgdmm/experiments/white2024_cv
+mkdir -p results/logs results/panama ~/.cache/arviz
 
 PYTHON=/cluster/home/haroldh/miniforge3/envs/spgdmm-test/bin/python
 SEED=${SEED:-42}
 
-echo "=== Masked-holdout CV — SW Australia  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED} ==="
-$PYTHON southwest_example.py --mode bayes \
+echo "=== Masked-holdout CV — Panama  config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED} ==="
+$PYTHON panama_example.py --mode bayes \
     --config_idx ${SLURM_ARRAY_TASK_ID} \
     --draws 1000 --tune 4000 --chains 4 --seed ${SEED} \
     --n_folds 10 \
-    --output_dir results/southwest
+    --output_dir results/panama
 
 echo "Done (config_idx=${SLURM_ARRAY_TASK_ID}  seed=${SEED})."

@@ -528,9 +528,9 @@ writing – review and editing.
 ## Data Availability
 
 The SW Australia and Panama plant assemblage datasets used for benchmarking are those
-originally analysed by White et al. (2024) and are included in the `examples/data/`
-directory of the gdmbayes repository. The example scripts in `examples/` reproduce all
-results in Table 2. Simulated data for the usage examples (Section 3) are generated
+originally analysed by White et al. (2024) and are included in the
+`experiments/white2024_cv/data/` directory of the gdmbayes repository. The runner
+scripts in `experiments/white2024_cv/` reproduce all results in Table 2. Simulated data for the usage examples (Section 3) are generated
 programmatically and require no external files.
 
 ---

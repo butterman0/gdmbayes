@@ -101,11 +101,15 @@ paper/*.log
 paper/*.pdf
 paper/*.synctex.gz
 
-# Example results
-examples/results/
+# Experiment results
+experiments/**/results/
+experiments/**/logs/
 
 # Large reference PDFs
 papers/*.pdf
 
 # Large BC matrix (redundant - can be recomputed)
-examples/data/southwest_bc_matrix.csv
+experiments/white2024_cv/data/southwest_bc_matrix.csv
+
+# Local-only external reference code (e.g., White et al. spGDMM-code)
+external/

@@ -11,7 +11,7 @@ Ground-truth benchmarks from White et al. (2024) Table 1 are stored in `benchmar
 | GCFR Family | 412 | 7 | 2 | White et al. repo |
 | GCFR Species | 412 | 7 | 2 | White et al. repo |
 
-All example datasets live in `examples/data/`. Panama, GCFR Family, and GCFR Species files are byte-identical to White et al.'s originals from `philawhite/spGDMM-code`.
+All datasets live in `experiments/white2024_cv/data/`. Panama, GCFR Family, and GCFR Species files are byte-identical to White et al.'s originals from `philawhite/spGDMM-code`.
 
 ## Required Priors and Settings
 
@@ -33,7 +33,7 @@ CV metrics CSVs (`*_cv_metrics.csv`) deduplicate by `(config_tag, seed, n_folds)
 
 ```bash
 # Submit Bayesian CV jobs (one array task per model config)
-sbatch examples/run_bayes_panama.sh   # 9 configs x 10 folds, ~4h
-sbatch examples/run_bayes_sw.sh       # 9 configs x 10 folds, ~4h
-sbatch examples/run_bayes_gcfr.sh     # 9 configs x 10 folds, ~48h
+sbatch experiments/white2024_cv/run_bayes_panama.sh   # 9 configs x 10 folds, ~4h
+sbatch experiments/white2024_cv/run_bayes_sw.sh       # 9 configs x 10 folds, ~4h
+sbatch experiments/white2024_cv/run_bayes_gcfr.sh     # 9 configs x 10 folds, ~48h
 ```

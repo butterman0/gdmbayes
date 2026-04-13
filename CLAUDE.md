@@ -30,14 +30,18 @@ ruff check src/ --fix
 # Type check
 mypy src/gdmbayes/
 
-# Run examples (frequentist or Bayesian CV)
-python examples/panama_example.py --mode freq
-python examples/panama_example.py --mode bayes --config_idx 0
-python examples/gcfr_example.py --mode freq
-python examples/southwest_example.py --mode freq
+# Run package usage demos
+python examples/basic_usage.py
+python examples/model_variants.py
+
+# Run White et al. (2024) replication CVs (research code, not part of the package)
+python experiments/white2024_cv/panama_example.py --mode freq
+python experiments/white2024_cv/panama_example.py --mode bayes --config_idx 0
+python experiments/white2024_cv/gcfr_example.py --mode freq
+python experiments/white2024_cv/southwest_example.py --mode freq
 
 # Compare results against White et al. (2024) Table 1
-python examples/compare_results.py
+python experiments/white2024_cv/compare_results.py
 ```
 
 ## Architecture

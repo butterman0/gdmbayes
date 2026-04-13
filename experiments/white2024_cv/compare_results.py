@@ -35,7 +35,7 @@ RESULTS_DIR = args.results_dir
 # White et al. (2024) Table 1 benchmarks (10-fold CV)
 # Loaded from benchmarks/white2024_table1.csv.
 # ---------------------------------------------------------------------------
-_BENCHMARK_CSV = os.path.join(os.path.dirname(__file__), "..", "benchmarks", "white2024_table1.csv")
+_BENCHMARK_CSV = os.path.join(os.path.dirname(__file__), "..", "..", "benchmarks", "white2024_table1.csv")
 _bench = pd.read_csv(_BENCHMARK_CSV)
 
 # Map CSV dataset names to the short names used in our results

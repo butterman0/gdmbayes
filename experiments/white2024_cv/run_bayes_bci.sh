@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=8
 
 set -e
-cd /cluster/home/haroldh/spgdmm/examples
+cd /cluster/home/haroldh/spgdmm/experiments/white2024_cv
 mkdir -p results/logs results/bci ~/.cache/arviz
 
 PYTHON=/cluster/home/haroldh/miniforge3/envs/spgdmm-test/bin/python
