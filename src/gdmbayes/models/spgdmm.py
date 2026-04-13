@@ -583,6 +583,77 @@ class spGDMM(BaseEstimator):
         """Alias for ``predict_posterior``, for sklearn probabilistic estimator compatibility."""
         return self.predict_posterior(X_pred, extend_idata=extend_idata, combined=combined, **kwargs)
 
+    def crps(self, X: pd.DataFrame, y: np.ndarray) -> float:
+        """Mean continuous ranked probability score over site-pairs.
+
+        Uses the full posterior predictive distribution via ``predict_posterior``
+        rather than a point estimate, so it rewards well-calibrated uncertainty.
+        Lower is better.
+
+        Parameters
+        ----------
+        X : pd.DataFrame
+            Site-level data for the pairs to score.
+        y : ndarray of shape (n_pairs,)
+            Observed pairwise dissimilarities.
+
+        Returns
+        -------
+        float
+            Mean CRPS over pairs, on the dissimilarity scale.
+        """
+        from properscoring import crps_ensemble
+
+        samples = self.predict_posterior(X, combined=True, extend_idata=False)
+        # samples has one "sample" dim and one pair dim; put sample last for crps_ensemble.
+        pair_dim = next(d for d in samples.dims if d != "sample")
+        vals = samples.transpose(pair_dim, "sample").values  # (n_pairs, n_samples)
+        y = np.asarray(y, dtype=float)
+        return float(crps_ensemble(y, vals).mean())
+
+    def score(self, X: pd.DataFrame, y: np.ndarray) -> float:
+        """sklearn-compatible score: negative mean CRPS (higher is better).
+
+        Enables spGDMM to be used with ``cross_val_score`` / ``GridSearchCV``
+        out of the box. Callers who want a different metric can pass an
+        explicit ``scoring=`` argument to the sklearn CV machinery.
+
+        Note: each call draws fresh posterior predictive samples, so two
+        invocations on the same ``(X, y)`` will differ by Monte Carlo noise.
+        Use a fixed ``random_seed`` in ``sampler_config`` for reproducibility.
+        """
+        return -self.crps(X, y)
+
+    def explained_deviance(self, X: pd.DataFrame, y: np.ndarray) -> float:
+        """Fraction of null binomial deviance explained by the posterior-mean prediction.
+
+        Parity with :meth:`GDM.score` and R ``gdm::gdm()``: ``1 - D_model / D_null``,
+        where ``D`` is the binomial deviance treating the posterior-mean
+        dissimilarity as a point prediction. Useful for direct comparability
+        with frequentist GDM fits and R gdm results.
+
+        Note: this metric ignores posterior variance — a wide well-calibrated
+        fit and a tight overconfident fit with the same mean score identically.
+        Prefer :meth:`crps` / :meth:`score` for ranking Bayesian models.
+        """
+        y = np.asarray(y, dtype=float)
+        eps = 1e-8
+        mu_pred = np.clip(self.predict(X), eps, 1 - eps)
+        mu_null = np.clip(np.full_like(y, np.mean(y)), eps, 1 - eps)
+        y_safe = np.clip(y, eps, 1 - eps)
+
+        def _deviance(y_vals, mu_vals):
+            t1 = np.where(y_vals < eps, 0.0, y_vals * np.log(y_vals / mu_vals))
+            t2 = np.where(
+                y_vals > 1 - eps, 0.0,
+                (1 - y_vals) * np.log((1 - y_vals) / (1 - mu_vals)),
+            )
+            return 2.0 * np.sum(t1 + t2)
+
+        null_dev = _deviance(y_safe, mu_null)
+        model_dev = _deviance(y_safe, mu_pred)
+        return float(1.0 - model_dev / null_dev) if null_dev > 0 else 0.0
+
     def sample_posterior_predictive(
         self, X_pred, extend_idata, combined, predictions=True, **kwargs
     ):

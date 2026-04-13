@@ -586,6 +586,35 @@ class TestGPConditionalPredict:
         assert np.all(y_pred >= 0)
         assert np.all(y_pred <= 1)
 
+    def test_crps_score_and_explained_deviance(self, train_test_data):
+        """crps(), score(), and explained_deviance() return finite scalars with
+        the expected sign conventions."""
+        X_train, y_train, X_test, y_test = train_test_data
+
+        model = spGDMM(
+            preprocessor=GDMPreprocessor(deg=2, knots=1),
+            model_config=ModelConfig(variance="homogeneous", spatial_effect="none",
+                                     alpha_importance=False),
+            sampler_config=SamplerConfig(
+                draws=4, tune=4, chains=1, nuts_sampler="pymc", progressbar=False
+            ),
+        )
+        model.fit(X_train, y_train)
+
+        crps_val = model.crps(X_test, y_test)
+        score_val = model.score(X_test, y_test)
+        ed_val = model.explained_deviance(X_test, y_test)
+
+        # CRPS is a non-negative scoring rule (lower is better).
+        assert np.isfinite(crps_val)
+        assert crps_val >= 0.0
+        # score() = -crps() up to independent MC noise in posterior predictive
+        # sampling; at minimum the signs should be consistent and values finite.
+        assert np.isfinite(score_val)
+        assert score_val <= 0.0
+        assert np.isfinite(ed_val)
+        assert ed_val <= 1.0  # explained deviance has a ceiling of 1
+
 
 class TestSpGDMMSaveLoad:
     """Save/load round-trip tests — require MCMC (minimal sampling)."""
