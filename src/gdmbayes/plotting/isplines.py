@@ -5,10 +5,46 @@ from typing import TYPE_CHECKING
 import arviz as az
 import matplotlib.pyplot as plt
 import numpy as np
+import xarray as xr
 from dms_variants.ispline import Isplines
 
 if TYPE_CHECKING:
     from ..models.spgdmm import spGDMM
+
+
+def _beta_as_feature_basis(idata, prep) -> xr.DataArray:
+    """Return beta as a (chain, draw, feature, basis_function) DataArray.
+
+    When ``alpha_importance=True`` the model already declares beta with these
+    dims. When ``alpha_importance=False`` beta is a flat LogNormal vector of
+    length ``(n_predictors + 1) * n_spline_bases`` laid out as
+    ``[env_0_s1..env_0_sJ, env_1_s1..env_1_sJ, ..., dist_s1..dist_sJ]``; slice
+    off the trailing distance block and reshape so downstream plotting code is
+    uniform across both cases.
+    """
+    beta = idata.posterior.beta
+    if "feature" in beta.dims:
+        return beta
+
+    n_bases = prep.n_spline_bases_
+    n_feat = prep.n_predictors_
+    feat_names = list(prep.predictor_names_)
+    env_len = n_feat * n_bases
+    env_flat = beta.isel({beta.dims[-1]: slice(0, env_len)})
+    reshaped = env_flat.values.reshape(
+        env_flat.sizes["chain"], env_flat.sizes["draw"], n_feat, n_bases
+    )
+    return xr.DataArray(
+        reshaped,
+        dims=("chain", "draw", "feature", "basis_function"),
+        coords={
+            "chain": env_flat.coords["chain"].values,
+            "draw": env_flat.coords["draw"].values,
+            "feature": feat_names,
+            "basis_function": np.arange(1, n_bases + 1),
+        },
+        name="beta",
+    )
 
 
 def plot_isplines(
@@ -47,7 +83,7 @@ def plot_isplines(
     idata = model.idata_
     prep = model.preprocessor
 
-    beta = idata.posterior.beta  # (chain, draw, feature, basis_function)
+    beta = _beta_as_feature_basis(idata, prep)
     n_bases = beta.sizes["basis_function"]
     all_feats = list(beta.coords["feature"].values)
 

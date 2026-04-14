@@ -363,6 +363,8 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
             same variable names as spGDMM._save_input_params for compatibility.
         """
         check_is_fitted(self)
+        # Config fields are stored as scalar data variables (not group attrs) because
+        # arviz strips group-level attrs during netcdf roundtrip.
         ds = xr.Dataset(
             {
                 "predictor_mesh": xr.DataArray(
@@ -376,15 +378,50 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
                     self.I_spline_bases_, dims=("site_train", "spline_col")
                 ),
                 "length_scale": xr.DataArray(self.length_scale_),
+                "preprocessor_deg": xr.DataArray(np.int64(self.deg)),
+                "preprocessor_knots": xr.DataArray(np.int64(self.knots)),
+                "preprocessor_mesh_choice": xr.DataArray(str(self.mesh_choice)),
+                "preprocessor_distance_measure": xr.DataArray(str(self.distance_measure)),
+                "preprocessor_extrapolation": xr.DataArray(str(self.extrapolation)),
+                "preprocessor_predictor_names": xr.DataArray(
+                    json.dumps(self.predictor_names_)
+                ),
             }
         )
-        ds.attrs["predictor_names"] = json.dumps(self.predictor_names_)
-        ds.attrs["deg"] = self.deg
-        ds.attrs["knots"] = self.knots
-        ds.attrs["mesh_choice"] = self.mesh_choice
-        ds.attrs["distance_measure"] = self.distance_measure
-        ds.attrs["extrapolation"] = self.extrapolation
         return ds
+
+    @staticmethod
+    def site_pairs(n_sites_total: int, site_idx) -> np.ndarray:
+        """Return condensed pair indices for a subset of sites.
+
+        Given a full dataset of ``n_sites_total`` sites whose pairwise
+        dissimilarities are stored in a condensed vector ``y`` (length
+        ``n_sites_total*(n_sites_total-1)//2``, upper-triangle order from
+        ``np.triu_indices``), return the integer indices into ``y`` that
+        correspond to pairs *within* ``site_idx``.
+
+        Lives on ``GDMPreprocessor`` because the upper-triangle pair
+        ordering is the same convention the preprocessor itself uses to
+        assemble its pairwise feature matrix in ``transform()``. Callers
+        should slice ``y`` the same way the features are laid out.
+
+        Parameters
+        ----------
+        n_sites_total : int
+            Total number of sites in the full dataset.
+        site_idx : array-like of int
+            Indices of the site subset (0-based, into the full site matrix X).
+
+        Returns
+        -------
+        np.ndarray of int
+            Indices into the condensed pair vector for pairs within ``site_idx``.
+        """
+        site_idx = np.asarray(site_idx)
+        all_row, all_col = np.triu_indices(n_sites_total, k=1)
+        s = set(site_idx.tolist())
+        mask = np.array([r in s and c in s for r, c in zip(all_row, all_col)])
+        return np.where(mask)[0]
 
     @classmethod
     def from_xarray(cls, ds: xr.Dataset) -> "GDMPreprocessor":
@@ -399,12 +436,33 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         -------
         GDMPreprocessor
         """
+        # Prefer config stored as data variables (survives netcdf roundtrip); fall
+        # back to group attrs and finally to deriving knots from the mesh shape for
+        # legacy files where neither source is reliable.
+        def _read(name: str, attr_key: str, default, cast):
+            if name in ds.data_vars:
+                return cast(ds[name].values.item())
+            if attr_key in ds.attrs:
+                return cast(ds.attrs[attr_key])
+            return default
+
+        deg = _read("preprocessor_deg", "deg", 3, int)
+        if "preprocessor_knots" in ds.data_vars:
+            knots = int(ds["preprocessor_knots"].values.item())
+        elif "knots" in ds.attrs:
+            knots = int(ds.attrs["knots"])
+        else:
+            # Legacy fallback: derive from saved mesh shape (n_knot_points = knots + 2).
+            knots = int(ds["predictor_mesh"].shape[1]) - 2
+
         obj = cls(
-            deg=int(ds.attrs.get("deg", 3)),
-            knots=int(ds.attrs.get("knots", 2)),
-            mesh_choice=str(ds.attrs.get("mesh_choice", "percentile")),
-            distance_measure=str(ds.attrs.get("distance_measure", "euclidean")),
-            extrapolation=str(ds.attrs.get("extrapolation", "clip")),
+            deg=deg,
+            knots=knots,
+            mesh_choice=_read("preprocessor_mesh_choice", "mesh_choice", "percentile", str),
+            distance_measure=_read(
+                "preprocessor_distance_measure", "distance_measure", "euclidean", str
+            ),
+            extrapolation=_read("preprocessor_extrapolation", "extrapolation", "clip", str),
         )
         obj.predictor_mesh_ = ds["predictor_mesh"].values
         obj.dist_mesh_ = ds["dist_mesh"].values
@@ -412,7 +470,10 @@ class GDMPreprocessor(BaseEstimator, TransformerMixin):
         obj.I_spline_bases_ = ds["I_spline_bases_train"].values
         obj.length_scale_ = float(ds["length_scale"].values)
 
-        obj.predictor_names_ = json.loads(ds.attrs.get("predictor_names", "[]"))
+        if "preprocessor_predictor_names" in ds.data_vars:
+            obj.predictor_names_ = json.loads(str(ds["preprocessor_predictor_names"].values.item()))
+        else:
+            obj.predictor_names_ = json.loads(ds.attrs.get("predictor_names", "[]"))
 
         obj.n_predictors_ = obj.predictor_mesh_.shape[0]
         obj.n_spline_bases_ = obj.deg + obj.knots

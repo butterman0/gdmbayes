@@ -100,11 +100,15 @@ def rgb_biological_space(
         Dims ``(time, xc, yc, rgb)`` with rgb in ``{R, G, B}`` and values in
         ``[0, 1]``.
     """
+    from .plotting.isplines import _beta_as_feature_basis
     from .preprocessor import GDMPreprocessor
 
     preprocessor = GDMPreprocessor.from_xarray(idata.constant_data)
 
-    beta_draws = idata.posterior.beta
+    # _beta_as_feature_basis normalises both the alpha_importance=True path
+    # (already (feature, basis_function)) and the flat LogNormal path so this
+    # function works regardless of which prior was used during fit.
+    beta_draws = _beta_as_feature_basis(idata, preprocessor)
     beta = (
         beta_draws.mean(dim=["chain", "draw"])
         if metric == "mean"

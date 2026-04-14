@@ -52,7 +52,9 @@ def plot_predictor_importance(
     if "beta" not in post:
         raise ValueError("Posterior does not contain a 'beta' variable.")
 
-    beta = post.beta  # (chain, draw, feature, basis_function)
+    from .isplines import _beta_as_feature_basis
+
+    beta = _beta_as_feature_basis(idata, model.preprocessor)
     importance = beta.sum(dim="basis_function")  # (chain, draw, feature)
 
     mean = importance.mean(dim=["chain", "draw"])
@@ -65,17 +67,28 @@ def plot_predictor_importance(
     errs_lo = vals - lo.values
     errs_hi = hi.values - vals
 
-    if include_distance and "beta_dist" in post:
-        dist_imp = post.beta_dist.sum(dim=[d for d in post.beta_dist.dims if d not in ("chain", "draw")])
-        dist_mean = float(dist_imp.mean(dim=["chain", "draw"]).values)
-        dist_hdi = az.hdi(dist_imp, hdi_prob=hdi_prob)
-        dist_lo = float(dist_hdi.sel(hdi="lower")[list(dist_hdi.data_vars)[0]].values)
-        dist_hi = float(dist_hdi.sel(hdi="higher")[list(dist_hdi.data_vars)[0]].values)
+    if include_distance:
+        dist_imp = None
+        if "beta_dist" in post:
+            dist_imp = post.beta_dist.sum(
+                dim=[d for d in post.beta_dist.dims if d not in ("chain", "draw")]
+            )
+        elif "feature" not in post.beta.dims:
+            # Flat LogNormal beta — trailing n_spline_bases entries are the distance basis.
+            n_bases = model.preprocessor.n_spline_bases_
+            flat = post.beta
+            dist_block = flat.isel({flat.dims[-1]: slice(-n_bases, None)})
+            dist_imp = dist_block.sum(dim=flat.dims[-1])
+        if dist_imp is not None:
+            dist_mean = float(dist_imp.mean(dim=["chain", "draw"]).values)
+            dist_hdi_ds = az.hdi(dist_imp, hdi_prob=hdi_prob)
+            dist_lo = float(dist_hdi_ds.sel(hdi="lower")[list(dist_hdi_ds.data_vars)[0]].values)
+            dist_hi = float(dist_hdi_ds.sel(hdi="higher")[list(dist_hdi_ds.data_vars)[0]].values)
 
-        names = names + ["distance"]
-        vals = np.concatenate([vals, [dist_mean]])
-        errs_lo = np.concatenate([errs_lo, [dist_mean - dist_lo]])
-        errs_hi = np.concatenate([errs_hi, [dist_hi - dist_mean]])
+            names = names + ["distance"]
+            vals = np.concatenate([vals, [dist_mean]])
+            errs_lo = np.concatenate([errs_lo, [dist_mean - dist_lo]])
+            errs_hi = np.concatenate([errs_hi, [dist_hi - dist_mean]])
 
     order = np.argsort(vals)[::-1]
     names_sorted = [names[i] for i in order]

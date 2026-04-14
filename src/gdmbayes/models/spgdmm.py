@@ -144,8 +144,9 @@ class spGDMM(BaseEstimator):
             ``X.iloc[train_sites].reset_index(drop=True)``.
         y : array-like
             Pairwise Bray-Curtis dissimilarities for training-site pairs
-            (length n_train*(n_train-1)//2).  Use ``site_pairs(n_sites, train_sites)``
-            to extract the correct subset from the full pairwise vector.
+            (length n_train*(n_train-1)//2).  Use
+            ``GDMPreprocessor.site_pairs(n_sites, train_sites)`` to extract the
+            correct subset from the full pairwise vector.
         progressbar : bool
             Whether to display a progress bar during sampling.
         random_seed : int or None
