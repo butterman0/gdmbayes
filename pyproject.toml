@@ -14,12 +14,16 @@ authors = [
     {name = "Harold Horsley", email = "harryhorsley9@gmail.com"}
 ]
 keywords = [
-    "bayesian",
-    "spatial",
+    "generalized-dissimilarity-modelling",
+    "gdm",
+    "beta-diversity",
+    "biodiversity",
     "ecology",
-    "dissimilarity",
-    "mixed-model",
-    "gdm"
+    "bayesian",
+    "pymc",
+    "gaussian-process",
+    "spatial-statistics",
+    "scikit-learn",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
