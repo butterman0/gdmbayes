@@ -1,8 +1,8 @@
 # gdmbayes
 
 [![CI](https://github.com/butterman0/gdmbayes/actions/workflows/ci.yml/badge.svg)](https://github.com/butterman0/gdmbayes/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/gdmbayes)](https://pypi.org/project/gdmbayes/)
-[![Python](https://img.shields.io/pypi/pyversions/gdmbayes)](https://pypi.org/project/gdmbayes/)
+[![PyPI](https://img.shields.io/pypi/v/gdmbayes?cacheSeconds=3600)](https://pypi.org/project/gdmbayes/)
+[![Python](https://img.shields.io/pypi/pyversions/gdmbayes?cacheSeconds=3600)](https://pypi.org/project/gdmbayes/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/butterman0/gdmbayes/blob/main/LICENSE)
 [![Docs](https://readthedocs.org/projects/gdmbayes/badge/?version=latest)](https://gdmbayes.readthedocs.io)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23568886.svg)](https://doi.org/10.5281/zenodo.23568886)
