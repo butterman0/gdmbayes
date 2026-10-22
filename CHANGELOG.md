@@ -6,6 +6,8 @@ All notable changes to gdmbayes are documented here. The format follows
 
 ## [Unreleased]
 
+- Richer PyPI keywords.
+
 ## [0.1.0] — 2026-10-22
 
 Initial public release.
