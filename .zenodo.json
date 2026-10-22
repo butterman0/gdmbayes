@@ -1,0 +1,42 @@
+{
+  "title": "gdmbayes: Bayesian and Frequentist Generalised Dissimilarity Modelling in Python",
+  "upload_type": "software",
+  "license": "MIT",
+  "creators": [
+    {
+      "name": "Horsley, Harold",
+      "affiliation": "Department of Engineering Cybernetics, Norwegian University of Science and Technology (NTNU)",
+      "orcid": "0009-0005-0361-7609"
+    }
+  ],
+  "keywords": [
+    "generalised dissimilarity modelling",
+    "beta diversity",
+    "Bayesian inference",
+    "Gaussian process",
+    "PyMC",
+    "scikit-learn",
+    "ecology"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.1111/2041-210X.14259",
+      "relation": "cites",
+      "resource_type": "publication-article",
+      "scheme": "doi"
+    },
+    {
+      "identifier": "10.1111/j.1472-4642.2007.00341.x",
+      "relation": "cites",
+      "resource_type": "publication-article",
+      "scheme": "doi"
+    },
+    {
+      "identifier": "10.5281/zenodo.10091442",
+      "relation": "references",
+      "resource_type": "software",
+      "scheme": "doi"
+    }
+  ],
+  "description": "<p>gdmbayes is a Python package for Generalised Dissimilarity Modelling (GDM). It provides a scikit-learn-compatible frequentist GDM estimator (NNLS on I-spline features, matching the R gdm package) and a full Bayesian estimator (spGDMM) built on PyMC/nutpie with Gaussian-process spatial random effects, flexible variance structures and hierarchical predictor-importance weights. It replicates and extends the spGDMM model of White et al. (2024, Methods in Ecology and Evolution).</p>"
+}

@@ -1,0 +1,60 @@
+cff-version: 1.2.0
+message: "If you use gdmbayes, please cite it as below."
+type: software
+title: "gdmbayes: Bayesian and Frequentist Generalised Dissimilarity Modelling in Python"
+version: 0.1.0
+date-released: 2026-10-21
+license: MIT
+repository-code: https://github.com/butterman0/gdmbayes
+authors:
+  - family-names: Horsley
+    given-names: Harold
+    orcid: https://orcid.org/0009-0005-0361-7609
+    email: harryhorsley9@gmail.com
+    affiliation: "Department of Engineering Cybernetics, Norwegian University of Science and Technology (NTNU)"
+keywords:
+  - generalised dissimilarity modelling
+  - beta diversity
+  - Bayesian inference
+  - Gaussian process
+  - PyMC
+  - scikit-learn
+  - ecology
+references:
+  - type: article
+    title: "Using generalized dissimilarity modelling to analyse and predict patterns of beta diversity in regional biodiversity assessment"
+    authors:
+      - family-names: Ferrier
+        given-names: Simon
+      - family-names: Manion
+        given-names: Glenn
+      - family-names: Elith
+        given-names: Jane
+      - family-names: Richardson
+        given-names: Karen
+    journal: Diversity and Distributions
+    year: 2007
+    volume: 13
+    start: 252
+    end: 264
+    doi: 10.1111/j.1472-4642.2007.00341.x
+  - type: article
+    title: "Spatially explicit generalized dissimilarity modelling: a Bayesian approach to modelling species turnover with spatial random effects"
+    authors:
+      - family-names: White
+        given-names: Philip A.
+      - family-names: Frye
+        given-names: Henry A.
+      - family-names: Slingsby
+        given-names: Jasper A.
+      - family-names: Silander
+        given-names: John A.
+      - family-names: Gelfand
+        given-names: Alan E.
+    journal: Methods in Ecology and Evolution
+    year: 2024
+    volume: 15
+    issue: 1
+    start: 214
+    end: 226
+    doi: 10.1111/2041-210X.14259

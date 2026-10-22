@@ -1,0 +1,3 @@
+include LICENSE
+include CITATION.cff
+include README.md
