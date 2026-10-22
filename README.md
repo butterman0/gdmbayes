@@ -5,6 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/gdmbayes)](https://pypi.org/project/gdmbayes/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](https://github.com/butterman0/gdmbayes/blob/main/LICENSE)
 [![Docs](https://readthedocs.org/projects/gdmbayes/badge/?version=latest)](https://gdmbayes.readthedocs.io)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23568886.svg)](https://doi.org/10.5281/zenodo.23568886)
 
 **Generalised Dissimilarity Modelling in Python — frequentist and Bayesian.**
 
@@ -227,6 +228,7 @@ et al. (2007)](#references) for GDM and [White et al. (2024)](#references) for t
   year    = {2026},
   version = {0.1.0},
   license = {MIT},
+  doi     = {10.5281/zenodo.23568886},
   url     = {https://github.com/butterman0/gdmbayes}
 }
 ```
