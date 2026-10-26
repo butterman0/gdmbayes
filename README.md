@@ -267,9 +267,9 @@ estimator implements the Ferrier et al. (2007) algorithm as used in the R `gdm` 
 ([Fitzpatrick et al. 2025](#references), GPL-3): I-spline features and iteratively
 reweighted non-negative least squares with a complementary log-log link. It is written
 in Python on NumPy/SciPy, with the `gdm` C++ source consulted as the specification so
-that results agree to floating-point precision (see the regression test); no code is
-copied from it. The Southwest Australia example data are derived from the `southwest`
-dataset distributed with `gdm` — see `examples/data/southwest/README.md`. Thanks to Philip White for
+that results agree to floating-point precision (see the regression test). The Southwest
+Australia example data are derived from the `southwest` dataset distributed with `gdm` —
+see `examples/data/southwest/README.md`. Thanks to Philip White for
 making the reference code and data publicly available.
 
 ## Contributing and licence
