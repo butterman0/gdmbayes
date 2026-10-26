@@ -263,9 +263,13 @@ follows their reference NIMBLE implementation,
 https://github.com/philawhite/spGDMM-code (Zenodo: https://doi.org/10.5281/zenodo.10091442),
 which was also used to validate this package; the Panama (BCI) and South Africa
 benchmark datasets were obtained from that repository. The frequentist `GDM`
-estimator follows the R `gdm` package ([Fitzpatrick et al. 2025](#references)); it is an
-independent Python implementation of the published algorithm and contains no code from
-that package. Thanks to Philip White for
+estimator implements the Ferrier et al. (2007) algorithm as used in the R `gdm` package
+([Fitzpatrick et al. 2025](#references), GPL-3): I-spline features and iteratively
+reweighted non-negative least squares with a complementary log-log link. It is written
+in Python on NumPy/SciPy, with the `gdm` C++ source consulted as the specification so
+that results agree to floating-point precision (see the regression test). The Southwest
+Australia example data are derived from the `southwest` dataset distributed with `gdm` —
+see `examples/data/southwest/README.md`. Thanks to Philip White for
 making the reference code and data publicly available.
 
 ## Contributing and licence
